@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/smnbbrv/proxy-collections/compare/v1.1.0...v1.1.1) (2025-01-05)
+
+
+### Bug Fixes
+
+* fix the inline documentation ([697274e](https://github.com/smnbbrv/proxy-collections/commit/697274e9551988cc9a81ba820df92ae8b955c829))
+
 # [1.1.0](https://github.com/smnbbrv/proxy-collections/compare/v1.0.0...v1.1.0) (2025-01-05)
 
 

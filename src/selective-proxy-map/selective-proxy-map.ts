@@ -10,8 +10,7 @@ import { type SelectiveProxyFetcherOptions, SelectiveProxyFetcher } from './sele
  */
 export type SelectiveProxyMapOptions<K, V> = SelectiveProxyFetcherOptions<K, V> & {
   /**
-   * Cache
-   * @default new Map()
+   * Cache implementation (optional)
    */
   cache?: ProxyMapCache<K, V>;
 };

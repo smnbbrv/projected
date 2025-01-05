@@ -14,7 +14,6 @@ import { BufferedRequest } from './buffered-request.js';
 export type SelectiveProxyFetcherOptions<K, V> = {
   /**
    * Function that returns key of an entity
-   * If not provided, the entity is expected to have `key` property
    * @param item Entity
    * @returns Key of the entity
    */

@@ -36,7 +36,7 @@ const collection = new CompleteProxyMap<string, Value>({
 
 await collection.getAll(); // Array of all items
 await collection.get('key1'); // Value for key key1
-await collection.get(['key2', 'key3']); // Value for key key2
+await collection.get(['key2', 'key3']); // Value for key2, key3
 ```
 
 
@@ -71,7 +71,7 @@ const collection = new SelectiveProxyMap<string, Value>({
 });
 
 await collection.get('key1'); // Value for key key1
-await collection.get(['key2', 'key3']); // Value for key key2
+await collection.get(['key2', 'key3']); // Value for key2, key3
 ```
 
 ### With cache
@@ -96,7 +96,7 @@ const collection = new SelectiveProxyMap<string, Value>({
 });
 
 await collection.get('key1'); // Value for key key1
-await collection.get(['key2', 'key3']); // Value for key key2
+await collection.get(['key2', 'key3']); // Value for key2, key3
 ```
 
 ## License

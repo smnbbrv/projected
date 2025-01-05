@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/smnbbrv/proxy-collections/compare/v1.0.0...v1.1.0) (2025-01-05)
+
+
+### Features
+
+* add CompleteProxyMap ([24f2444](https://github.com/smnbbrv/proxy-collections/commit/24f244442b325ea4cd0b383dc4d47e0687414a67))
+
 # 1.0.0 (2024-12-10)
 
 

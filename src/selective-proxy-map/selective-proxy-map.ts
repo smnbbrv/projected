@@ -5,9 +5,6 @@ import { NOOP_CACHE } from '../utils/noop-cache.js';
 
 import { type SelectiveProxyFetcherOptions, SelectiveProxyFetcher } from './selective-proxy-fetcher.js';
 
-/**
- * ProxyMap is a utility class that helps to reduce the number of requests to the backend.
- */
 export type SelectiveProxyMapOptions<K, V> = SelectiveProxyFetcherOptions<K, V> & {
   /**
    * Cache implementation (optional)
@@ -20,7 +17,8 @@ interface GetOptions {
 }
 
 /**
- * ProxyMap is a utility class that helps to reduce the number of requests to the backend.
+ * A collection of objects that are not stored in memory, but are fetched from a remote source when needed.
+ * This is useful when you have a large collection of objects that you don't want to load all at once.
  */
 export class SelectiveProxyMap<K, V> {
   private readonly cache: ProxyMapCache<K, V>;

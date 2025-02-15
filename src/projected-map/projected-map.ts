@@ -3,7 +3,7 @@ import type { Maybe } from '../types/maybe.js';
 import { deepFreeze } from '../utils/deep-freeze.js';
 import { defined } from '../utils/defined.js';
 
-export type CompleteProxyMapOptions<K, V> = {
+export type ProjectedMapOptions<K, V> = {
   /**
    * Function that returns key of an entity
    * If not provided, the entity is expected to have `key` property
@@ -23,12 +23,12 @@ export type CompleteProxyMapOptions<K, V> = {
  * A collection of objects that are stored in memory, but being fetched from a remote source on demand.
  * This is useful when you have a fairly small collection of objects that you need to fetch and actualize from the remote data source.
  */
-export class CompleteProxyMap<K, V> {
+export class ProjectedMap<K, V> {
   private _cache: Promise<Map<K, V>> | undefined;
   private readonly key: (item: V) => K;
-  private readonly values: CompleteProxyMapOptions<K, V>['values'];
+  private readonly values: ProjectedMapOptions<K, V>['values'];
 
-  constructor({ key, values }: CompleteProxyMapOptions<K, V>) {
+  constructor({ key, values }: ProjectedMapOptions<K, V>) {
     this.key = key;
     this.values = values;
   }
@@ -120,4 +120,4 @@ export class CompleteProxyMap<K, V> {
   }
 }
 
-export const createCompleteProxyMap = <K, V>(options: CompleteProxyMapOptions<K, V>) => new CompleteProxyMap(options);
+export const createProjectedMap = <K, V>(options: ProjectedMapOptions<K, V>) => new ProjectedMap(options);

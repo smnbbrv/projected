@@ -8,10 +8,7 @@ import { defined } from '../utils/defined.js';
 
 import { BufferedRequest } from './buffered-request.js';
 
-/**
- * ProxyMap is a utility class that helps to reduce the number of requests to the backend.
- */
-export type SelectiveProxyFetcherOptions<K, V> = {
+export type FetcherOptions<K, V> = {
   /**
    * Function that returns key of an entity
    * @param item Entity
@@ -47,9 +44,9 @@ export type FetchManyOptions = FetchOptions;
 export type FetchOneOptions = FetchOptions;
 
 /**
- * ProxyMap is a utility class that helps to reduce the number of requests to the backend.
+ * Fetcher is a utility class that helps to reduce the number of requests to the backend.
  */
-export class SelectiveProxyFetcher<K, V> {
+export class Fetcher<K, V> {
   private readonly incomingRequests: Subject<{ key: K; bufferedRequest: BufferedRequest<K, V> }> = new Subject();
   private readonly bufferedRequests: Observable<void>;
   private readonly handle: (keys: K[]) => MaybePromise<Maybe<V>[]>;
@@ -57,7 +54,7 @@ export class SelectiveProxyFetcher<K, V> {
   private readonly delay: number;
   private readonly bufferMaxSize: number;
 
-  constructor(options: SelectiveProxyFetcherOptions<K, V>) {
+  constructor(options: FetcherOptions<K, V>) {
     // setting default values
     const { values: handle, key, delay, maxChunkSize: bufferMaxSize } = options;
 

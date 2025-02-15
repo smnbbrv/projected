@@ -1,4 +1,4 @@
-import type { ProxyMapCache } from '../types/cache.js';
+import type { ProjectedMapCache } from '../types/cache.js';
 
 export const NOOP_CACHE = {
   has: () => false,
@@ -6,4 +6,4 @@ export const NOOP_CACHE = {
   set: () => undefined,
   delete: () => undefined,
   clear: () => undefined,
-} as ProxyMapCache<any, any>;
+} as ProjectedMapCache<any, any>;

@@ -1,14 +1,40 @@
-# proxy-collections
+# projected
 
 Collections of objects that rely on remote data sources. Hides the complexity of fetching and caching data from a remote source regardless of the number of consumers.
 
 ## Installation
 
 ```bash
-npm i proxy-collections
+npm i projected
 ```
 
-## CompleteProxyMap
+## ProjectedValue
+
+A single value that is stored in memory, but being fetched from a remote source on demand. This is useful when you have a single object that you need to fetch and actualize from the remote data source.
+
+- lazy: object is obtained only when needed
+- all consumers are re-using the same connection, which means only one call is issued regardless of the number of consumers
+
+```ts
+import { ProjectedValue } from 'projected';
+
+type Value = {
+  key: string;
+  value: string;
+};
+
+const value = new ProjectedValue<Value>({
+  // function that fetches the data from a remote source
+  value: async () => {
+    // here you would fetch the data from a remote source
+    return { key: 'key1', value: 'Value for key key1' };
+  },
+});
+
+await value.get(); // Value
+```
+
+## ProjectedMap
 
 A collection of objects that are stored in memory, but being fetched from a remote source on demand. This is useful when you have a fairly small collection of objects that you need to fetch and actualize from the remote data source.
 
@@ -18,14 +44,14 @@ A collection of objects that are stored in memory, but being fetched from a remo
 - all consumers are re-using the same connection, which means only one call is issued regardless of the number of consumers
   
 ```ts
-import { CompleteProxyMap } from 'proxy-collections';
+import { ProjectedMap } from 'projected';
 
 type Value = {
   key: string;
   value: string;
 };
 
-const collection = new CompleteProxyMap<string, Value>({
+const collection = new ProjectedMap<string, Value>({
   key: 'key',
   // function that fetches the data from a remote source
   values: async () => {
@@ -40,7 +66,7 @@ await collection.get(['key2', 'key3']); // Value for key2, key3
 ```
 
 
-## SelectiveProxyMap
+## ProjectedLazyMap
 
 A collection of objects that are not stored in memory, but are fetched from a remote source when needed. This is useful when you have a large collection of objects that you don't want to load all at once.
 
@@ -51,14 +77,14 @@ A collection of objects that are not stored in memory, but are fetched from a re
 ### Default (no cache)
 
 ```ts
-import { SelectiveProxyMap } from 'proxy-collections';
+import { ProjectedLazyMap } from 'projected';
 
 type Value = {
   key: string;
   value: string;
 };
 
-const collection = new SelectiveProxyMap<string, Value>({
+const collection = new ProjectedLazyMap<string, Value>({
   key: 'key',
   // function that fetches the data from a remote source given a list of deduplicated grouped keys
   values: async (keys) => {
@@ -76,17 +102,17 @@ await collection.get(['key2', 'key3']); // Value for key2, key3
 
 ### With cache
 
-You can opt to use a cache to store the fetched objects. The cache must implement type `ProxyMapCache`. This can be a normal js `Map`, [lru-cache](https://www.npmjs.com/package/lru-cache) or any similar cache implementation.
+You can opt to use a cache to store the fetched objects. The cache must implement type `ProjectedMapCache`. This can be a normal js `Map`, [lru-cache](https://www.npmjs.com/package/lru-cache) or any similar cache implementation.
 
 ```ts
-import { SelectiveProxyMap } from 'proxy-collections';
+import { ProjectedLazyMap } from 'projected';
 
 type Value = {
   key: string;
   value: string;
 };
 
-const collection = new SelectiveProxyMap<string, Value>({
+const collection = new ProjectedLazyMap<string, Value>({
   key: 'key',
   values: async (keys) => {
     // here you would fetch the data from a remote source

@@ -1,15 +1,15 @@
-import type { ProxyMapCache } from '../types/cache.js';
+import type { ProjectedMapCache } from '../types/cache.js';
 import type { Maybe } from '../types/maybe.js';
 import { defined } from '../utils/defined.js';
 import { NOOP_CACHE } from '../utils/noop-cache.js';
 
-import { type SelectiveProxyFetcherOptions, SelectiveProxyFetcher } from './selective-proxy-fetcher.js';
+import { type FetcherOptions, Fetcher } from './fetcher.js';
 
-export type SelectiveProxyMapOptions<K, V> = SelectiveProxyFetcherOptions<K, V> & {
+export type ProjectedLazyMapOptions<K, V> = FetcherOptions<K, V> & {
   /**
    * Cache implementation (optional)
    */
-  cache?: ProxyMapCache<K, V>;
+  cache?: ProjectedMapCache<K, V>;
 };
 
 interface GetOptions {
@@ -20,14 +20,14 @@ interface GetOptions {
  * A collection of objects that are not stored in memory, but are fetched from a remote source when needed.
  * This is useful when you have a large collection of objects that you don't want to load all at once.
  */
-export class SelectiveProxyMap<K, V> {
-  private readonly cache: ProxyMapCache<K, V>;
-  private readonly fetcher: SelectiveProxyFetcher<K, V>;
-  private readonly key: SelectiveProxyFetcherOptions<K, V>['key'];
+export class ProjectedLazyMap<K, V> {
+  private readonly cache: ProjectedMapCache<K, V>;
+  private readonly fetcher: Fetcher<K, V>;
+  private readonly key: FetcherOptions<K, V>['key'];
 
-  constructor({ cache, key, ...fetcherOptions }: SelectiveProxyMapOptions<K, V>) {
+  constructor({ cache, key, ...fetcherOptions }: ProjectedLazyMapOptions<K, V>) {
     this.key = key;
-    this.fetcher = new SelectiveProxyFetcher({ key, ...fetcherOptions });
+    this.fetcher = new Fetcher({ key, ...fetcherOptions });
     this.cache = cache ?? NOOP_CACHE;
   }
 
@@ -127,5 +127,4 @@ export class SelectiveProxyMap<K, V> {
   }
 }
 
-export const createSelectiveProxyMap = <K, V>(options: SelectiveProxyMapOptions<K, V>) =>
-  new SelectiveProxyMap(options);
+export const createProjectedLazyMap = <K, V>(options: ProjectedLazyMapOptions<K, V>) => new ProjectedLazyMap(options);

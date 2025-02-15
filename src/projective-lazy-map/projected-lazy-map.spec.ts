@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { createSelectiveProxyMap, SelectiveProxyMap } from './selective-proxy-map.js';
+import { createProjectedLazyMap, ProjectedLazyMap } from './projected-lazy-map.js';
 
 const testData = [
   { id: '1', title: 'title1' },
@@ -13,18 +13,18 @@ const testData = [
 type TestObject = (typeof testData)[0];
 
 describe('fetcher', () => {
-  it('should create map with createSelectiveProxyMap', () => {
-    const map = createSelectiveProxyMap<string, TestObject>({
+  it('should create map with createProjectedLazyMap', () => {
+    const map = createProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
     expect(map).toBeTruthy();
-    expect(map).toBeInstanceOf(SelectiveProxyMap);
+    expect(map).toBeInstanceOf(ProjectedLazyMap);
   });
 
   it('should fetch one', async () => {
-    const map = new SelectiveProxyMap<string, TestObject>({
+    const map = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: (ids) => testData.filter((item) => ids.includes(item.id)),
       delay: 1000,
@@ -39,41 +39,41 @@ describe('fetcher', () => {
   });
 
   it('should fetch one (buffered)', async () => {
-    const proxyMap = new SelectiveProxyMap<string, TestObject>({
+    const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
-    expect(proxyMap).toBeTruthy();
+    expect(projectedMap).toBeTruthy();
 
-    const res = await proxyMap.getByKey('3', { immediate: true });
+    const res = await projectedMap.getByKey('3', { immediate: true });
 
     expect(res).toBeTruthy();
     expect(res?.title).toBe('title3');
   });
 
   it("shouldn't get many if keys array is empty", async () => {
-    const proxyMap = new SelectiveProxyMap<string, TestObject>({
+    const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
-    expect(proxyMap).toBeTruthy();
+    expect(projectedMap).toBeTruthy();
 
-    const res = await proxyMap.getByKeys([]);
+    const res = await projectedMap.getByKeys([]);
 
     expect(res.length).toBe(0);
   });
 
   it('should fetch many', async () => {
-    const proxyMap = new SelectiveProxyMap<string, TestObject>({
+    const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
-    expect(proxyMap).toBeTruthy();
+    expect(projectedMap).toBeTruthy();
 
-    const res = await proxyMap.getByKeys(['4', '3', '5']);
+    const res = await projectedMap.getByKeys(['4', '3', '5']);
 
     expect(res.length).toBe(3);
 
@@ -89,14 +89,14 @@ describe('fetcher', () => {
   });
 
   it('should fetch many (buffered)', async () => {
-    const proxyMap = new SelectiveProxyMap<string, TestObject>({
+    const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
-    expect(proxyMap).toBeTruthy();
+    expect(projectedMap).toBeTruthy();
 
-    const res = await proxyMap.getByKeys(['4', '3', '5'], { immediate: true });
+    const res = await projectedMap.getByKeys(['4', '3', '5'], { immediate: true });
 
     expect(res.length).toBe(3);
 
@@ -114,7 +114,7 @@ describe('fetcher', () => {
   it('should fetch many (buffered) with multiple parallel fetches', async () => {
     const delays = [500, 200];
 
-    const proxyMap = new SelectiveProxyMap<string, TestObject>({
+    const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => {
         const delay = delays.shift();
@@ -127,11 +127,11 @@ describe('fetcher', () => {
       maxChunkSize: 2,
     });
 
-    expect(proxyMap).toBeTruthy();
+    expect(projectedMap).toBeTruthy();
 
     const [res1, res2] = await Promise.all([
-      proxyMap.getByKeys(['4', '3', '5'], { immediate: true }),
-      proxyMap.getByKeys(['2', '3', '1'], { immediate: true }),
+      projectedMap.getByKeys(['4', '3', '5'], { immediate: true }),
+      projectedMap.getByKeys(['2', '3', '1'], { immediate: true }),
     ]);
 
     expect(res1.length).toBe(3);
@@ -160,14 +160,14 @@ describe('fetcher', () => {
   });
 
   it('should return sparse arrays', async () => {
-    const proxyMap = new SelectiveProxyMap<string, TestObject>({
+    const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
-    expect(proxyMap).toBeTruthy();
+    expect(projectedMap).toBeTruthy();
 
-    const sparse = await proxyMap.getByKeysSparse(['4', '6', '5']);
+    const sparse = await projectedMap.getByKeysSparse(['4', '6', '5']);
 
     expect(sparse.length).toBe(3);
 
@@ -179,7 +179,7 @@ describe('fetcher', () => {
     expect(sparse[2]!.id).toBe('5');
     expect(sparse[2]!.title).toBe('title5');
 
-    const dense = await proxyMap.getByKeys(['4', '6', '5']);
+    const dense = await projectedMap.getByKeys(['4', '6', '5']);
 
     expect(dense.length).toBe(2);
 
@@ -192,27 +192,27 @@ describe('fetcher', () => {
   });
 
   it('should propagate errors', async () => {
-    const proxyMap = new SelectiveProxyMap<string, TestObject>({
+    const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => {
         throw new Error('fetch error ' + ids.join(','));
       },
     });
 
-    expect(proxyMap).toBeTruthy();
+    expect(projectedMap).toBeTruthy();
 
-    await expect(proxyMap.getByKey('3')).rejects.toThrow('fetch error 3');
-    await expect(proxyMap.getByKeys(['3', '4'])).rejects.toThrow('fetch error 3,4');
+    await expect(projectedMap.getByKey('3')).rejects.toThrow('fetch error 3');
+    await expect(projectedMap.getByKeys(['3', '4'])).rejects.toThrow('fetch error 3,4');
   });
 
   it('should implement mixed get method', async () => {
-    const proxyMap = new SelectiveProxyMap<string, TestObject>({
+    const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
-    const one = await proxyMap.get('3');
-    const many = await proxyMap.get(['4', '6', '5']);
+    const one = await projectedMap.get('3');
+    const many = await projectedMap.get(['4', '6', '5']);
 
     expect(one).toBeTruthy();
     expect(one!.id).toBe('3');
@@ -228,14 +228,14 @@ describe('fetcher', () => {
 
 describe('cache', () => {
   it('should create a fully functional noop cache by default', async () => {
-    const proxyMap = new SelectiveProxyMap<string, TestObject>({
+    const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
-    expect(proxyMap).toBeTruthy();
+    expect(projectedMap).toBeTruthy();
 
-    const res = await proxyMap.getByKey('3');
+    const res = await projectedMap.getByKey('3');
 
     expect(res).toBeTruthy();
     expect(res?.title).toBe('title3');
@@ -252,7 +252,7 @@ describe('cache', () => {
   it('should use provided cache', async () => {
     const cache = new Map();
 
-    const map = new SelectiveProxyMap<string, TestObject>({
+    const map = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: (ids) => testData.filter((item) => ids.includes(item.id)),
       delay: 1000,
@@ -305,7 +305,7 @@ describe('cache', () => {
   it('should not cache not found items', async () => {
     const cache = new Map();
 
-    const map = new SelectiveProxyMap<string, TestObject>({
+    const map = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: (ids) => testData.filter((item) => ids.includes(item.id)),
       delay: 1000,
@@ -328,7 +328,7 @@ describe('cache', () => {
   });
 
   it('should not perform handle if all keys are found in cache', async () => {
-    const map = new SelectiveProxyMap<string, TestObject>({
+    const map = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: (ids) => testData.filter((item) => ids.includes(item.id)),
       delay: 1000,

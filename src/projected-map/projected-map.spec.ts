@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 
-import { createCompleteProxyMap, CompleteProxyMap } from './complete-proxy-map.js';
+import { createProjectedMap, ProjectedMap } from './projected-map.js';
 
 const testData = [
   { id: '1', title: 'title1' },
@@ -12,18 +12,18 @@ const testData = [
 
 type TestObject = (typeof testData)[0];
 
-it('should create map with createCompleteProxyMap', () => {
-  const map = createCompleteProxyMap<string, TestObject>({
+it('should create map with createProjectedMap', () => {
+  const map = createProjectedMap<string, TestObject>({
     key: (item) => item.id,
     values: () => testData,
   });
 
   expect(map).toBeTruthy();
-  expect(map).toBeInstanceOf(CompleteProxyMap);
+  expect(map).toBeInstanceOf(ProjectedMap);
 });
 
 it('should fetch one', async () => {
-  const map = new CompleteProxyMap<string, TestObject>({
+  const map = new ProjectedMap<string, TestObject>({
     key: (item) => item.id,
     values: () => testData,
   });
@@ -37,27 +37,27 @@ it('should fetch one', async () => {
 });
 
 it("shouldn't get many if keys array is empty", async () => {
-  const proxyMap = new CompleteProxyMap<string, TestObject>({
+  const projectedMap = new ProjectedMap<string, TestObject>({
     key: (item) => item.id,
     values: () => Promise.resolve(testData),
   });
 
-  expect(proxyMap).toBeTruthy();
+  expect(projectedMap).toBeTruthy();
 
-  const res = await proxyMap.getByKeys([]);
+  const res = await projectedMap.getByKeys([]);
 
   expect(res.length).toBe(0);
 });
 
 it('should fetch many', async () => {
-  const proxyMap = new CompleteProxyMap<string, TestObject>({
+  const projectedMap = new ProjectedMap<string, TestObject>({
     key: (item) => item.id,
     values: () => Promise.resolve(testData),
   });
 
-  expect(proxyMap).toBeTruthy();
+  expect(projectedMap).toBeTruthy();
 
-  const res = await proxyMap.getByKeys(['4', '3', '5']);
+  const res = await projectedMap.getByKeys(['4', '3', '5']);
 
   expect(res.length).toBe(3);
 
@@ -73,14 +73,14 @@ it('should fetch many', async () => {
 });
 
 it('should return sparse arrays', async () => {
-  const proxyMap = new CompleteProxyMap<string, TestObject>({
+  const projectedMap = new ProjectedMap<string, TestObject>({
     key: (item) => item.id,
     values: () => Promise.resolve(testData),
   });
 
-  expect(proxyMap).toBeTruthy();
+  expect(projectedMap).toBeTruthy();
 
-  const sparse = await proxyMap.getByKeysSparse(['4', '6', '5']);
+  const sparse = await projectedMap.getByKeysSparse(['4', '6', '5']);
 
   expect(sparse.length).toBe(3);
 
@@ -92,7 +92,7 @@ it('should return sparse arrays', async () => {
   expect(sparse[2]!.id).toBe('5');
   expect(sparse[2]!.title).toBe('title5');
 
-  const dense = await proxyMap.getByKeys(['4', '6', '5']);
+  const dense = await projectedMap.getByKeys(['4', '6', '5']);
 
   expect(dense.length).toBe(2);
 
@@ -105,27 +105,27 @@ it('should return sparse arrays', async () => {
 });
 
 it('should propagate errors', async () => {
-  const proxyMap = new CompleteProxyMap<string, TestObject>({
+  const projectedMap = new ProjectedMap<string, TestObject>({
     key: (item) => item.id,
     values: async () => {
       throw new Error('fetch error');
     },
   });
 
-  expect(proxyMap).toBeTruthy();
+  expect(projectedMap).toBeTruthy();
 
-  await expect(proxyMap.getByKey('3')).rejects.toThrow('fetch error');
-  await expect(proxyMap.getByKeys(['3', '4'])).rejects.toThrow('fetch error');
+  await expect(projectedMap.getByKey('3')).rejects.toThrow('fetch error');
+  await expect(projectedMap.getByKeys(['3', '4'])).rejects.toThrow('fetch error');
 });
 
 it('should implement mixed get method', async () => {
-  const proxyMap = new CompleteProxyMap<string, TestObject>({
+  const projectedMap = new ProjectedMap<string, TestObject>({
     key: (item) => item.id,
     values: () => Promise.resolve(testData),
   });
 
-  const one = await proxyMap.get('3');
-  const many = await proxyMap.get(['4', '6', '5']);
+  const one = await projectedMap.get('3');
+  const many = await projectedMap.get(['4', '6', '5']);
 
   expect(one).toBeTruthy();
   expect(one!.id).toBe('3');

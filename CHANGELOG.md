@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/smnbbrv/proxy-collections/compare/v1.1.1...v1.2.0) (2025-02-15)
+
+
+### Features
+
+* add projected value ([9b84bc7](https://github.com/smnbbrv/proxy-collections/commit/9b84bc7ab0279662661f2463a6d53953eb646a7e))
+
 ## [1.1.1](https://github.com/smnbbrv/projected/compare/v1.1.0...v1.1.1) (2025-01-05)
 
 

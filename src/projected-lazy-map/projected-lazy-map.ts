@@ -109,7 +109,7 @@ export class ProjectedLazyMap<K, V> {
    * @param value Value
    * @returns void
    */
-  async delete(keyOrKeys: K | K[]) {
+  delete(keyOrKeys: K | K[]) {
     if (Array.isArray(keyOrKeys)) {
       keyOrKeys.forEach((key) => this.cache.delete(key));
       return;
@@ -122,7 +122,7 @@ export class ProjectedLazyMap<K, V> {
    * Clear cache
    * @returns void
    */
-  async clear() {
+  clear() {
     this.cache.clear();
   }
 }

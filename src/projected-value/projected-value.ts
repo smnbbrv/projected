@@ -33,7 +33,7 @@ export class ProjectedValue<V> {
    * Clear the value, so it will be fetched again on the next access
    * @returns void
    */
-  async clear() {
+  clear() {
     this._value = undefined;
   }
 

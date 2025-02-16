@@ -102,7 +102,7 @@ export class ProjectedMap<K, V> {
    * Clear the values, so they will be fetched again on the next access
    * @returns void
    */
-  async clear() {
+  clear() {
     this._cache = undefined;
   }
 

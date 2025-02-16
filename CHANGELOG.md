@@ -1,3 +1,15 @@
+# [1.3.0](https://github.com/smnbbrv/projected/compare/v1.2.0...v1.3.0) (2025-02-16)
+
+
+### Bug Fixes
+
+* remove async from synchronous methods ([fc9fe4b](https://github.com/smnbbrv/projected/commit/fc9fe4bf1c9f9b6519985c2f047830d108712ab1))
+
+
+### Features
+
+* get rid of dependencies ([bf709a7](https://github.com/smnbbrv/projected/commit/bf709a7026ac185c60b5d988ab0ec2afb41c06a0))
+
 # [1.2.0](https://github.com/smnbbrv/proxy-collections/compare/v1.1.1...v1.2.0) (2025-02-15)
 
 

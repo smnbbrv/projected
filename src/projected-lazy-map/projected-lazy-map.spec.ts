@@ -46,7 +46,7 @@ describe('fetcher', () => {
 
     expect(projectedMap).toBeTruthy();
 
-    const res = await projectedMap.getByKey('3', { immediate: true });
+    const res = await projectedMap.getByKey('3');
 
     expect(res).toBeTruthy();
     expect(res?.title).toBe('title3');
@@ -96,7 +96,7 @@ describe('fetcher', () => {
 
     expect(projectedMap).toBeTruthy();
 
-    const res = await projectedMap.getByKeys(['4', '3', '5'], { immediate: true });
+    const res = await projectedMap.getByKeys(['4', '3', '5']);
 
     expect(res.length).toBe(3);
 
@@ -130,8 +130,8 @@ describe('fetcher', () => {
     expect(projectedMap).toBeTruthy();
 
     const [res1, res2] = await Promise.all([
-      projectedMap.getByKeys(['4', '3', '5'], { immediate: true }),
-      projectedMap.getByKeys(['2', '3', '1'], { immediate: true }),
+      projectedMap.getByKeys(['4', '3', '5']),
+      projectedMap.getByKeys(['2', '3', '1']),
     ]);
 
     expect(res1.length).toBe(3);
@@ -227,7 +227,7 @@ describe('fetcher', () => {
 });
 
 describe('cache', () => {
-  it('should create a fully functional noop cache by default', async () => {
+  it('should create a fully functional cache by default', async () => {
     const projectedMap = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: async (ids) => testData.filter((item) => ids.includes(item.id)),
@@ -249,7 +249,7 @@ describe('cache', () => {
     // expect(() => cache.clear()).not.toThrow();
   });
 
-  it('should use provided cache', async () => {
+  it('should use custom cache', async () => {
     const cache = new Map();
 
     const map = new ProjectedLazyMap<string, TestObject>({

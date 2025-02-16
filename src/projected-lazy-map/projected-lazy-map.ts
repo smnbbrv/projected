@@ -1,15 +1,29 @@
 import type { ProjectedMapCache } from '../types/cache.js';
 import type { Maybe } from '../types/maybe.js';
+import type { Protection } from '../types/protection.js';
+import { deepFreeze } from '../utils/deep-freeze.js';
 import { defined } from '../utils/defined.js';
 import { NOOP_CACHE } from '../utils/noop-cache.js';
 
-import { type FetcherOptions, Fetcher } from './fetcher.js';
+import { type ResolverOptions, Resolver } from './dispatcher.js';
 
-export type ProjectedLazyMapOptions<K, V> = FetcherOptions<K, V> & {
+export type ProjectedLazyMapOptions<K, V> = ResolverOptions<K, V> & {
   /**
    * Cache implementation (optional)
+   * - false - no cache
+   * - true - use default cache (`new Map()`)
+   * - custom cache implementation
+   * @default true
    */
-  cache?: ProjectedMapCache<K, V>;
+  cache?: boolean | ProjectedMapCache<K, V>;
+
+  /**
+   * Should the values be protected from modification
+   * - 'freeze' - values are deeply frozen
+   * - 'none' - values are not protected
+   * @default 'none'
+   */
+  protection?: Maybe<Protection>;
 };
 
 interface GetOptions {
@@ -21,17 +35,24 @@ interface GetOptions {
  * This is useful when you have a large collection of objects that you don't want to load all at once.
  */
 export class ProjectedLazyMap<K, V> {
-  private readonly cache: ProjectedMapCache<K, V>;
-  private readonly fetcher: Fetcher<K, V>;
-  private readonly key: FetcherOptions<K, V>['key'];
+  private readonly cache: ProjectedMapCache<K, V> = new Map();
+  private readonly fetcher: Resolver<K, V>;
+  private readonly key: ResolverOptions<K, V>['key'];
+  private readonly protection: Maybe<Protection>;
 
-  constructor({ cache, key, ...fetcherOptions }: ProjectedLazyMapOptions<K, V>) {
+  constructor({ cache, key, protection, ...fetcherOptions }: ProjectedLazyMapOptions<K, V>) {
     this.key = key;
-    this.fetcher = new Fetcher({ key, ...fetcherOptions });
-    this.cache = cache ?? NOOP_CACHE;
+    this.fetcher = new Resolver({ key, ...fetcherOptions });
+    this.protection = protection ?? 'none';
+
+    if (cache === false) {
+      this.cache = NOOP_CACHE;
+    } else if (typeof cache === 'object') {
+      this.cache = cache;
+    }
   }
 
-  async getByKeysSparse(keys: K[], options?: GetOptions): Promise<Maybe<V>[]> {
+  async getByKeysSparse(keys: K[]): Promise<Maybe<V>[]> {
     if (!keys.length) {
       return [];
     }
@@ -44,9 +65,17 @@ export class ProjectedLazyMap<K, V> {
       return hits;
     }
 
-    const missing = await this.fetcher.fetchMany(keys, options);
+    const missing = await this.fetcher.resolve(keys);
 
-    missing.filter(defined).forEach((value) => {
+    missing.forEach((value) => {
+      if (!value) {
+        return;
+      }
+
+      if (this.protection === 'freeze') {
+        deepFreeze(value);
+      }
+
       foundMap.set(this.key(value), value);
       this.cache.set(this.key(value), value);
     });
@@ -57,33 +86,31 @@ export class ProjectedLazyMap<K, V> {
   /**
    * Fetch many values by keys
    * @param keys Array of keys
-   * @param options Fetch options
    * @returns Promise that resolves to an array of values
    */
-  async getByKeys(keys: K[], options?: GetOptions): Promise<V[]> {
-    return (await this.getByKeysSparse(keys, options)).filter(defined);
+  async getByKeys(keys: K[]): Promise<V[]> {
+    return (await this.getByKeysSparse(keys)).filter(defined);
   }
 
   /**
    * Get value by key
    * @param key Key
-   * @param options Fetch options
    * @returns Promise that resolves to a value
    */
-  async getByKey(key: K, options?: GetOptions): Promise<Maybe<V>> {
+  async getByKey(key: K): Promise<Maybe<V>> {
     const hit = this.cache.get(key);
 
     if (hit) {
       return hit;
     }
 
-    const fetched = await this.fetcher.fetchOne(key, options);
+    const [value] = await this.getByKeysSparse([key]);
 
-    if (fetched) {
-      this.cache.set(key, fetched);
+    if (value) {
+      this.cache.set(key, value);
     }
 
-    return fetched;
+    return value;
   }
 
   async get(keyOrKeys: K[], options?: GetOptions): Promise<V[]>;
@@ -92,15 +119,14 @@ export class ProjectedLazyMap<K, V> {
   /**
    * Mixed get method
    * @param keyOrKeys Key or array of keys
-   * @param options Fetch options
    * @returns Promise that resolves to a value or an array of values depending on the input
    */
-  async get(keyOrKeys: K | K[], options?: GetOptions): Promise<V[] | Maybe<V>> {
+  async get(keyOrKeys: K | K[]): Promise<V[] | Maybe<V>> {
     if (Array.isArray(keyOrKeys)) {
-      return this.getByKeys(keyOrKeys, options);
+      return this.getByKeys(keyOrKeys);
     }
 
-    return this.getByKey(keyOrKeys, options);
+    return this.getByKey(keyOrKeys);
   }
 
   /**

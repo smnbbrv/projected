@@ -1,6 +1,6 @@
 # projected
 
-Collections of objects that rely on remote data sources. Hides the complexity of fetching and caching data from a remote source regardless of the number of consumers.
+Collections of utilities. Hides the complexity of fetching and caching data from a remote source regardless of the number of consumers.
 
 ## Installation
 

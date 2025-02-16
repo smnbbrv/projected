@@ -1,5 +1,6 @@
 import type { MaybePromise } from '../types/maybe-promise.js';
 import type { Maybe } from '../types/maybe.js';
+import type { Protection } from '../types/protection.js';
 import { deepFreeze } from '../utils/deep-freeze.js';
 import { defined } from '../utils/defined.js';
 
@@ -17,6 +18,22 @@ export type ProjectedMapOptions<K, V> = {
    * @returns Promise that resolves to an array of entities
    */
   values: () => MaybePromise<V[]>;
+
+  /**
+   * Should the values in cache be protected from modification
+   * - 'freeze' - values are deeply frozen
+   * - 'none' - values are not protected
+   * @default 'none'
+   */
+  protection?: Maybe<Protection>;
+
+  /**
+   * Cache implementation (optional)
+   * - false - no cache
+   * - true - use default cache
+   * @default true
+   */
+  cache?: boolean;
 };
 
 /**
@@ -27,10 +44,14 @@ export class ProjectedMap<K, V> {
   private _cache: Promise<Map<K, V>> | undefined;
   private readonly key: (item: V) => K;
   private readonly values: ProjectedMapOptions<K, V>['values'];
+  private readonly protection: Maybe<Protection>;
+  private readonly shouldCache: boolean;
 
-  constructor({ key, values }: ProjectedMapOptions<K, V>) {
+  constructor({ key, values, protection, cache }: ProjectedMapOptions<K, V>) {
     this.key = key;
     this.values = values;
+    this.protection = protection ?? 'none';
+    this.shouldCache = cache ?? true;
   }
 
   /**
@@ -109,10 +130,22 @@ export class ProjectedMap<K, V> {
   private get cache() {
     if (!this._cache) {
       this._cache = Promise.resolve(this.values())
-        .then((array) => array.reduce((map, item) => map.set(this.key(item), deepFreeze(item)), new Map()))
+        .then((array) =>
+          array.reduce(
+            (map, item) => map.set(this.key(item), this.protection === 'freeze' ? deepFreeze(item) : item),
+            new Map(),
+          ),
+        )
         .catch((err) => {
           this.clear();
           throw err;
+        })
+        .finally(() => {
+          if (!this.shouldCache) {
+            setTimeout(() => {
+              this.clear();
+            });
+          }
         });
     }
 

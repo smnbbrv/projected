@@ -5,6 +5,14 @@
   "type": "module",
   "author": "smnbbrv",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/smnbbrv/projected.git"
+  },
+  "bugs": {
+    "url": "https://github.com/smnbbrv/projected/issues"
+  },
+  "homepage": "https://github.com/smnbbrv/projected#readme",
   "scripts": {
     "start": "vite build --watch",
     "build": "vite build",

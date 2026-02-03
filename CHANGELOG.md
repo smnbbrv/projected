@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/smnbbrv/projected/compare/v1.4.0...v1.4.1) (2026-02-03)
+
+
+### Bug Fixes
+
+* update license ([a2c9b16](https://github.com/smnbbrv/projected/commit/a2c9b16996ed298524590d843b5ebb71548cef96))
+
 # [1.4.0](https://github.com/smnbbrv/projected/compare/v1.3.0...v1.4.0) (2026-02-03)
 
 

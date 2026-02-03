@@ -1,3 +1,15 @@
+# [1.4.0](https://github.com/smnbbrv/projected/compare/v1.3.0...v1.4.0) (2026-02-03)
+
+
+### Bug Fixes
+
+* update license ([9029902](https://github.com/smnbbrv/projected/commit/902990265646a95d5411c6829a3cc37820eb356e))
+
+
+### Features
+
+* add refresh method ([fe2a447](https://github.com/smnbbrv/projected/commit/fe2a44712ad383d07db6b4e0bd443dff49961655))
+
 # [1.3.0](https://github.com/smnbbrv/projected/compare/v1.2.0...v1.3.0) (2025-02-16)
 
 

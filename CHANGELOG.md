@@ -1,3 +1,20 @@
+# [2.0.0](https://github.com/smnbbrv/projected/compare/v1.4.0...v2.0.0) (2026-02-03)
+
+
+### Bug Fixes
+
+* update license ([a2c9b16](https://github.com/smnbbrv/projected/commit/a2c9b16996ed298524590d843b5ebb71548cef96))
+
+
+### Features
+
+* return MaybePromise from all methods, allow undefined values ([ee48251](https://github.com/smnbbrv/projected/commit/ee482516ae930308363302752ce5394b77c4a8bd))
+
+
+### BREAKING CHANGES
+
+* All get methods now return T | Promise<T> instead of always Promise<T>. ProjectedValue now allows undefined as a valid return value.
+
 # [1.4.0](https://github.com/smnbbrv/projected/compare/v1.3.0...v1.4.0) (2026-02-03)
 
 

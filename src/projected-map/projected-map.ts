@@ -4,6 +4,11 @@ import type { Protection } from '../types/protection.js';
 import { deepFreeze } from '../utils/deep-freeze.js';
 import { defined } from '../utils/defined.js';
 
+type RefreshState<K, V> = {
+  promise: Promise<Map<K, V>>;
+  stale: Promise<Map<K, V>> | undefined;
+};
+
 export type ProjectedMapOptions<K, V> = {
   /**
    * Function that returns key of an entity
@@ -42,6 +47,7 @@ export type ProjectedMapOptions<K, V> = {
  */
 export class ProjectedMap<K, V> {
   private _cache: Promise<Map<K, V>> | undefined;
+  private _refresh: RefreshState<K, V> | undefined;
   private readonly key: (item: V) => K;
   private readonly values: ProjectedMapOptions<K, V>['values'];
   private readonly protection: Maybe<Protection>;
@@ -125,6 +131,52 @@ export class ProjectedMap<K, V> {
    */
   clear() {
     this._cache = undefined;
+  }
+
+  /**
+   * Refresh the values using stale-while-revalidate pattern.
+   * - Returns a copy of the current cached map immediately (if exists)
+   * - Triggers a background refresh
+   * - Replaces cached map only when refresh succeeds
+   * - On refresh error, keeps serving the stale map
+   * @returns Promise that resolves to a copy of the current cached map, or undefined if no values are cached
+   */
+  refresh(): Promise<Maybe<Map<K, V>>> {
+    // if refresh already in progress, return its stale value
+    if (this._refresh) {
+      return this._refresh.stale?.then((map) => new Map(map)).catch(() => undefined) ?? Promise.resolve(undefined);
+    }
+
+    const stale = this._cache;
+
+    // start background refresh
+    const promise = Promise.resolve()
+      .then(() => this.values())
+      .then((array) =>
+        array.reduce(
+          (map, item) => map.set(this.key(item), this.protection === 'freeze' ? deepFreeze(item) : item),
+          new Map<K, V>(),
+        ),
+      )
+      .then((map) => {
+        // only update cache if we should cache
+        if (this.shouldCache) {
+          this._cache = Promise.resolve(map);
+        }
+
+        return map;
+      })
+      .catch(() => {
+        // on error, keep stale value - don't update cache
+      })
+      .finally(() => {
+        this._refresh = undefined;
+      });
+
+    this._refresh = { promise: promise as Promise<Map<K, V>>, stale };
+
+    // return copy of stale map immediately, or undefined if nothing cached
+    return stale?.then((map) => new Map(map)).catch(() => undefined) ?? Promise.resolve(undefined);
   }
 
   private get cache() {

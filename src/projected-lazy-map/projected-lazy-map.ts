@@ -138,6 +138,7 @@ export class ProjectedLazyMap<K, V> {
   delete(keyOrKeys: K | K[]) {
     if (Array.isArray(keyOrKeys)) {
       keyOrKeys.forEach((key) => this.cache.delete(key));
+
       return;
     }
 
@@ -150,6 +151,50 @@ export class ProjectedLazyMap<K, V> {
    */
   clear() {
     this.cache.clear();
+  }
+
+  refresh(key: K): Promise<Maybe<V>>;
+  refresh(keys: K[]): Promise<Maybe<V>[]>;
+
+  /**
+   * Refresh value(s) using stale-while-revalidate pattern.
+   * - Returns the current cached value(s) immediately
+   * - Triggers a background refresh for the specified key(s)
+   * - Updates cache entries only when refresh succeeds
+   * - On refresh error, keeps serving the stale values
+   * @param keyOrKeys Key or array of keys to refresh
+   * @returns Promise that resolves to the current cached value(s)
+   */
+  refresh(keyOrKeys: K | K[]): Promise<Maybe<V> | Maybe<V>[]> {
+    const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+    const staleValues = keys.map((key) => this.cache.get(key));
+
+    // trigger background refresh
+    this.fetcher
+      .resolve(keys)
+      .then((values) => {
+        values.forEach((value) => {
+          if (!value) {
+            return;
+          }
+
+          if (this.protection === 'freeze') {
+            deepFreeze(value);
+          }
+
+          this.cache.set(this.key(value), value);
+        });
+      })
+      .catch(() => {
+        // on error, keep stale values - don't update cache
+      });
+
+    // return stale values immediately
+    if (Array.isArray(keyOrKeys)) {
+      return Promise.resolve(staleValues);
+    }
+
+    return Promise.resolve(staleValues[0]);
   }
 }
 

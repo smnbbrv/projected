@@ -1,4 +1,4 @@
-import { it, expect } from 'vitest';
+import { it, expect, describe, vi } from 'vitest';
 
 import { createProjectedMap, ProjectedMap } from './projected-map.js';
 
@@ -136,4 +136,137 @@ it('should implement mixed get method', async () => {
   expect(many[1]).toBeTruthy();
   expect(many[1]!.id).toBe('5');
   expect(many[1]!.title).toBe('title5');
+});
+
+describe('refresh', () => {
+  it('should return undefined when nothing is cached', async () => {
+    const map = new ProjectedMap<string, TestObject>({
+      key: (item) => item.id,
+      values: () => testData,
+    });
+
+    const stale = await map.refresh();
+
+    expect(stale).toBeUndefined();
+  });
+
+  it('should return copy of cached map immediately', async () => {
+    const map = new ProjectedMap<string, TestObject>({
+      key: (item) => item.id,
+      values: () => structuredClone(testData),
+    });
+
+    // populate cache
+    const initial = await map.getAllAsMap();
+
+    expect(initial.size).toBe(5);
+
+    // refresh should return copy of stale map immediately
+    const stale = await map.refresh();
+
+    expect(stale).toBeTruthy();
+    expect(stale!.size).toBe(5);
+    // should be a copy, not the same reference
+    expect(stale).not.toBe(initial);
+    expect(stale!.get('1')).toEqual(initial.get('1'));
+  });
+
+  it('should trigger background fetch and update cache on success', async () => {
+    let fetchCount = 0;
+
+    const map = new ProjectedMap<string, TestObject>({
+      key: (item) => item.id,
+      values: () => {
+        fetchCount++;
+
+        return testData.map((item) => ({ ...item, title: `${item.title}-v${fetchCount}` }));
+      },
+    });
+
+    // populate cache
+    const initial = await map.getByKey('1');
+
+    expect(initial?.title).toBe('title1-v1');
+    expect(fetchCount).toBe(1);
+
+    // refresh returns stale immediately
+    const stale = await map.refresh();
+
+    expect(stale?.get('1')?.title).toBe('title1-v1');
+
+    // wait for background fetch to complete
+    await vi.waitFor(async () => {
+      const updated = await map.getByKey('1');
+
+      expect(updated?.title).toBe('title1-v2');
+    });
+
+    expect(fetchCount).toBe(2);
+  });
+
+  it('should keep stale value on refresh error', async () => {
+    let shouldFail = false;
+
+    const map = new ProjectedMap<string, TestObject>({
+      key: (item) => item.id,
+      values: () => {
+        if (shouldFail) {
+          throw new Error('refresh error');
+        }
+
+        return testData;
+      },
+    });
+
+    // populate cache
+    const initial = await map.getByKey('1');
+
+    expect(initial).toEqual(testData[0]);
+
+    // make next fetch fail
+    shouldFail = true;
+
+    // refresh returns stale immediately
+    const stale = await map.refresh();
+
+    expect(stale?.get('1')).toEqual(testData[0]);
+
+    // wait a bit for background fetch to complete (and fail)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // cache should still have the original value
+    const afterError = await map.getByKey('1');
+
+    expect(afterError).toEqual(testData[0]);
+  });
+
+  it('should not trigger multiple fetches when called multiple times', async () => {
+    let fetchCount = 0;
+
+    const map = new ProjectedMap<string, TestObject>({
+      key: (item) => item.id,
+      values: async () => {
+        fetchCount++;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        return testData;
+      },
+    });
+
+    // populate cache
+    await map.getByKey('1');
+
+    expect(fetchCount).toBe(1);
+
+    // call refresh multiple times
+    map.refresh();
+    map.refresh();
+    map.refresh();
+
+    // wait for background fetch to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // should only have fetched twice (initial + one refresh)
+    expect(fetchCount).toBe(2);
+  });
 });

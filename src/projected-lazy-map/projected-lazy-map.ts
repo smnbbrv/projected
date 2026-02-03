@@ -1,4 +1,5 @@
 import type { ProjectedMapCache } from '../types/cache.js';
+import type { MaybePromise } from '../types/maybe-promise.js';
 import type { Maybe } from '../types/maybe.js';
 import type { Protection } from '../types/protection.js';
 import { deepFreeze } from '../utils/deep-freeze.js';
@@ -37,12 +38,10 @@ interface GetOptions {
 export class ProjectedLazyMap<K, V> {
   private readonly cache: ProjectedMapCache<K, V> = new Map();
   private readonly fetcher: Resolver<K, V>;
-  private readonly key: ResolverOptions<K, V>['key'];
   private readonly protection: Maybe<Protection>;
 
-  constructor({ cache, key, protection, ...fetcherOptions }: ProjectedLazyMapOptions<K, V>) {
-    this.key = key;
-    this.fetcher = new Resolver({ key, ...fetcherOptions });
+  constructor({ cache, protection, ...fetcherOptions }: ProjectedLazyMapOptions<K, V>) {
+    this.fetcher = new Resolver(fetcherOptions);
     this.protection = protection ?? 'none';
 
     if (cache === false) {
@@ -52,76 +51,104 @@ export class ProjectedLazyMap<K, V> {
     }
   }
 
-  async getByKeysSparse(keys: K[]): Promise<Maybe<V>[]> {
+  /**
+   * Get values by keys, but return `undefined` for missing keys
+   * @param keys Array of keys
+   * @returns Array of values (sync if all cached) or Promise that resolves to an array
+   */
+  getByKeysSparse(keys: K[]): MaybePromise<Maybe<V>[]> {
     if (!keys.length) {
       return [];
     }
 
-    const hits = keys.map((id) => this.cache.get(id)).filter(defined);
-    const foundMap = new Map(hits.map((value) => [this.key(value), value]));
-    const missingKeys = keys.filter((id) => !foundMap.has(id));
+    const foundMap = new Map<K, V>();
+    const missingKeys: K[] = [];
 
-    if (!missingKeys.length) {
-      return hits;
+    for (const key of keys) {
+      const hit = this.cache.get(key);
+
+      if (hit) {
+        foundMap.set(key, hit);
+      } else {
+        missingKeys.push(key);
+      }
     }
 
-    const missing = await this.fetcher.resolve(keys);
+    // all cached - return sync
+    if (!missingKeys.length) {
+      return keys.map((key) => foundMap.get(key));
+    }
 
-    missing.forEach((value) => {
-      if (!value) {
-        return;
-      }
+    // need to fetch missing keys
+    return this.fetcher.resolve(missingKeys).then((fetchedMap) => {
+      fetchedMap.forEach((value, valueKey) => {
+        if (!value) {
+          return;
+        }
 
-      if (this.protection === 'freeze') {
-        deepFreeze(value);
-      }
+        if (this.protection === 'freeze') {
+          deepFreeze(value);
+        }
 
-      foundMap.set(this.key(value), value);
-      this.cache.set(this.key(value), value);
+        foundMap.set(valueKey, value);
+        this.cache.set(valueKey, value);
+      });
+
+      return keys.map((key) => foundMap.get(key));
     });
-
-    return keys.map((id) => foundMap.get(id));
   }
 
   /**
    * Fetch many values by keys
    * @param keys Array of keys
-   * @returns Promise that resolves to an array of values
+   * @returns Array of values (sync if all cached) or Promise that resolves to an array
    */
-  async getByKeys(keys: K[]): Promise<V[]> {
-    return (await this.getByKeysSparse(keys)).filter(defined);
+  getByKeys(keys: K[]): MaybePromise<V[]> {
+    const sparse = this.getByKeysSparse(keys);
+
+    if (sparse instanceof Promise) {
+      return sparse.then((values) => values.filter(defined));
+    }
+
+    return sparse.filter(defined);
   }
 
   /**
    * Get value by key
    * @param key Key
-   * @returns Promise that resolves to a value
+   * @returns Value (sync if cached) or Promise that resolves to a value
    */
-  async getByKey(key: K): Promise<Maybe<V>> {
+  getByKey(key: K): MaybePromise<Maybe<V>> {
     const hit = this.cache.get(key);
 
     if (hit) {
       return hit;
     }
 
-    const [value] = await this.getByKeysSparse([key]);
+    return this.fetcher.resolve([key]).then((fetchedMap) => {
+      const value = fetchedMap.get(key);
 
-    if (value) {
-      this.cache.set(key, value);
-    }
+      if (value) {
+        if (this.protection === 'freeze') {
+          deepFreeze(value);
+        }
 
-    return value;
+        this.cache.set(key, value);
+      }
+
+      return value;
+    });
   }
 
-  async get(keyOrKeys: K[], options?: GetOptions): Promise<V[]>;
-  async get(keyOrKeys: K, options?: GetOptions): Promise<Maybe<V>>;
+  get(keyOrKeys: K[], options?: GetOptions): MaybePromise<V[]>;
+  get(keyOrKeys: K, options?: GetOptions): MaybePromise<Maybe<V>>;
 
   /**
    * Mixed get method
    * @param keyOrKeys Key or array of keys
-   * @returns Promise that resolves to a value or an array of values depending on the input
+   * @returns Value or array of values (sync if cached) or Promise
    */
-  async get(keyOrKeys: K | K[]): Promise<V[] | Maybe<V>> {
+  get(keyOrKeys: K | K[]): MaybePromise<V[] | Maybe<V>> {
     if (Array.isArray(keyOrKeys)) {
       return this.getByKeys(keyOrKeys);
     }
@@ -153,27 +180,27 @@ export class ProjectedLazyMap<K, V> {
     this.cache.clear();
   }
 
-  refresh(key: K): Promise<Maybe<V>>;
-  refresh(keys: K[]): Promise<Maybe<V>[]>;
+  refresh(key: K): Maybe<V>;
+  refresh(keys: K[]): Maybe<V>[];
 
   /**
    * Refresh value(s) using stale-while-revalidate pattern.
-   * - Returns the current cached value(s) immediately
+   * - Returns the current cached value(s) immediately (sync)
    * - Triggers a background refresh for the specified key(s)
    * - Updates cache entries only when refresh succeeds
    * - On refresh error, keeps serving the stale values
    * @param keyOrKeys Key or array of keys to refresh
-   * @returns Promise that resolves to the current cached value(s)
+   * @returns Current cached value(s) (always sync)
    */
-  refresh(keyOrKeys: K | K[]): Promise<Maybe<V> | Maybe<V>[]> {
+  refresh(keyOrKeys: K | K[]): Maybe<V> | Maybe<V>[] {
     const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
     const staleValues = keys.map((key) => this.cache.get(key));
 
     // trigger background refresh
     this.fetcher
       .resolve(keys)
-      .then((values) => {
-        values.forEach((value) => {
+      .then((fetchedMap) => {
+        fetchedMap.forEach((value, valueKey) => {
           if (!value) {
             return;
           }
@@ -182,19 +209,19 @@ export class ProjectedLazyMap<K, V> {
             deepFreeze(value);
           }
 
-          this.cache.set(this.key(value), value);
+          this.cache.set(valueKey, value);
         });
       })
       .catch(() => {
         // on error, keep stale values - don't update cache
       });
 
-    // return stale values immediately
+    // return stale values immediately (sync)
     if (Array.isArray(keyOrKeys)) {
-      return Promise.resolve(staleValues);
+      return staleValues;
     }
 
-    return Promise.resolve(staleValues[0]);
+    return staleValues[0];
   }
 }
 

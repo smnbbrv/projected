@@ -12,6 +12,74 @@ const testData = [
 
 type TestObject = (typeof testData)[0];
 
+describe('sync behavior', () => {
+  it('should return sync value when cached', async () => {
+    const map = new ProjectedMap<string, TestObject>({
+      key: (item) => item.id,
+      values: () => testData,
+    });
+
+    // first call - async (fetching)
+    const result1 = map.getByKey('1');
+
+    expect(result1 instanceof Promise).toBe(true);
+
+    await result1;
+
+    // second call - sync (cached)
+    const result2 = map.getByKey('1');
+
+    expect(result2 instanceof Promise).toBe(false);
+    expect(result2).toBe(testData[0]);
+  });
+
+  it('should return sync values for all get methods when cached', async () => {
+    const map = new ProjectedMap<string, TestObject>({
+      key: (item) => item.id,
+      values: () => testData,
+    });
+
+    // populate cache
+    await map.getByKey('1');
+
+    // all methods should be sync now
+    expect(map.getByKey('2') instanceof Promise).toBe(false);
+    expect(map.getByKeys(['1', '2']) instanceof Promise).toBe(false);
+    expect(map.getByKeysSparse(['1', '2']) instanceof Promise).toBe(false);
+    expect(map.getAll() instanceof Promise).toBe(false);
+    expect(map.getAllAsMap() instanceof Promise).toBe(false);
+    expect(map.get('1') instanceof Promise).toBe(false);
+    expect(map.get(['1', '2']) instanceof Promise).toBe(false);
+  });
+
+  it('should return sync value from refresh when cached', async () => {
+    const map = new ProjectedMap<string, TestObject>({
+      key: (item) => item.id,
+      values: () => testData,
+    });
+
+    // populate cache
+    await map.getByKey('1');
+
+    // refresh always returns sync (stale value)
+    const stale = map.refresh();
+
+    expect(stale?.size).toBe(5);
+  });
+
+  it('should return sync undefined from refresh when not cached', () => {
+    const map = new ProjectedMap<string, TestObject>({
+      key: (item) => item.id,
+      values: () => testData,
+    });
+
+    // refresh always returns sync (undefined if not cached)
+    const stale = map.refresh();
+
+    expect(stale).toBe(undefined);
+  });
+});
+
 it('should create map with createProjectedMap', () => {
   const map = createProjectedMap<string, TestObject>({
     key: (item) => item.id,

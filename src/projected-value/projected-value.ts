@@ -3,10 +3,11 @@ import type { Maybe } from '../types/maybe.js';
 import type { Protection } from '../types/protection.js';
 import { deepFreeze } from '../utils/deep-freeze.js';
 
-type RefreshState<V> = {
-  promise: Promise<V>;
-  stale: Promise<V> | undefined;
-};
+type CacheState<V> =
+  | { status: 'empty' }
+  | { status: 'pending'; promise: Promise<V> }
+  | { status: 'resolved'; value: V }
+  | { status: 'refreshing'; value: V; promise: Promise<V> };
 
 export type ProjectedValueOptions<V> = {
   /**
@@ -37,8 +38,7 @@ export type ProjectedValueOptions<V> = {
  * This is useful when you have a single value that is expensive to fetch and you want to fetch it only when it is needed.
  */
 export class ProjectedValue<V> {
-  private _value: Promise<V> | undefined;
-  private _refresh: RefreshState<V> | undefined;
+  private _state: CacheState<V> = { status: 'empty' };
   private readonly valueFn: ProjectedValueOptions<V>['value'];
   private readonly protection: Maybe<Protection>;
   private readonly shouldCache: boolean;
@@ -51,10 +51,23 @@ export class ProjectedValue<V> {
 
   /**
    * Get the value
-   * @returns Promise that resolves to a value
+   * @returns Value (sync if cached) or Promise that resolves to a value (async if fetching)
    */
-  async get(): Promise<V> {
-    return this.value;
+  get(): MaybePromise<V> {
+    const state = this._state;
+
+    // cache hit - return sync
+    if (state.status === 'resolved' || state.status === 'refreshing') {
+      return state.value;
+    }
+
+    // already fetching - return existing promise
+    if (state.status === 'pending') {
+      return state.promise;
+    }
+
+    // cache miss - fetch
+    return this.fetch();
   }
 
   /**
@@ -62,7 +75,7 @@ export class ProjectedValue<V> {
    * @returns void
    */
   clear() {
-    this._value = undefined;
+    this._state = { status: 'empty' };
   }
 
   /**
@@ -71,70 +84,84 @@ export class ProjectedValue<V> {
    * - Triggers a background refresh
    * - Replaces cached value only when refresh succeeds
    * - On refresh error, keeps serving the stale value
-   * @returns Promise that resolves to the current cached value, or undefined if no value is cached
+   * @returns Current cached value, or undefined if no value is cached (always sync)
    */
-  refresh(): Promise<Maybe<V>> {
-    // if refresh already in progress, return its stale value
-    if (this._refresh) {
-      return this._refresh.stale?.catch(() => undefined) ?? Promise.resolve(undefined);
+  refresh(): Maybe<V> {
+    const state = this._state;
+
+    // already refreshing - return stale value
+    if (state.status === 'refreshing') {
+      return state.value;
     }
 
-    const stale = this._value;
+    // nothing cached or still pending - return undefined
+    if (state.status === 'empty' || state.status === 'pending') {
+      this.triggerBackgroundRefresh(undefined);
 
-    // start background refresh
+      return undefined;
+    }
+
+    // have cached value - trigger refresh and return stale
+    const staleValue = state.value;
+
+    this.triggerBackgroundRefresh(staleValue);
+
+    return staleValue;
+  }
+
+  private fetch(): Promise<V> {
     const promise = Promise.resolve()
       .then(() => this.valueFn())
       .then((v) => {
-        if (v === undefined) {
-          throw new Error('Return value "undefined" is not allowed in ProjectedValue');
-        }
-
         const value = this.protection === 'freeze' ? deepFreeze(v) : v;
 
-        // only update cache if we should cache
         if (this.shouldCache) {
-          this._value = Promise.resolve(value);
+          this._state = { status: 'resolved', value };
+        } else {
+          this._state = { status: 'empty' };
+        }
+
+        return value;
+      })
+      .catch((err) => {
+        this._state = { status: 'empty' };
+
+        throw err;
+      });
+
+    this._state = { status: 'pending', promise };
+
+    return promise;
+  }
+
+  private triggerBackgroundRefresh(staleValue: V | undefined) {
+    const promise = Promise.resolve()
+      .then(() => this.valueFn())
+      .then((v) => {
+        const value = this.protection === 'freeze' ? deepFreeze(v) : v;
+
+        if (this.shouldCache) {
+          this._state = { status: 'resolved', value };
+        } else {
+          this._state = { status: 'empty' };
         }
 
         return value;
       })
       .catch(() => {
-        // on error, keep stale value - don't update cache
-      })
-      .finally(() => {
-        this._refresh = undefined;
+        // on error, keep stale value if we have one
+        if (staleValue !== undefined && this.shouldCache) {
+          this._state = { status: 'resolved', value: staleValue };
+        } else {
+          this._state = { status: 'empty' };
+        }
       });
 
-    this._refresh = { promise: promise as Promise<V>, stale };
-
-    // return stale value immediately, or undefined if nothing cached
-    return stale?.catch(() => undefined) ?? Promise.resolve(undefined);
-  }
-
-  private get value() {
-    if (!this._value) {
-      this._value = Promise.resolve(this.valueFn())
-        .then((v) => {
-          if (v === undefined) {
-            throw new Error('Return value "undefined" is not allowed in ProjectedValue');
-          }
-
-          return this.protection === 'freeze' ? deepFreeze(v) : v;
-        })
-        .catch((err) => {
-          this.clear();
-          throw err;
-        })
-        .finally(() => {
-          if (!this.shouldCache) {
-            setTimeout(() => {
-              this.clear();
-            });
-          }
-        });
+    if (staleValue !== undefined) {
+      this._state = { status: 'refreshing', value: staleValue, promise: promise as Promise<V> };
+    } else {
+      this._state = { status: 'pending', promise: promise as Promise<V> };
     }
-
-    return this._value;
   }
 }
 

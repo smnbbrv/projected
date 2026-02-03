@@ -21,6 +21,7 @@
     "clear": "rm -rf dist",
     "patch": "node ci/patcher.js",
     "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
     "typecheck": "tsc --noEmit",
     "validate": "run-p lint typecheck coverage",
     "release": "semantic-release"

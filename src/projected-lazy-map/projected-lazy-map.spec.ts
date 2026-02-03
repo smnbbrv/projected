@@ -12,6 +12,90 @@ const testData = [
 
 type TestObject = (typeof testData)[0];
 
+describe('sync behavior', () => {
+  it('should return sync value when cached (getByKey)', async () => {
+    const map = new ProjectedLazyMap<string, TestObject>({
+      key: (item) => item.id,
+      values: (ids) => testData.filter((item) => ids.includes(item.id)),
+    });
+
+    // first call - async (fetching)
+    const result1 = map.getByKey('1');
+
+    expect(result1 instanceof Promise).toBe(true);
+
+    await result1;
+
+    // second call - sync (cached)
+    const result2 = map.getByKey('1');
+
+    expect(result2 instanceof Promise).toBe(false);
+    expect(result2).toBe(testData[0]);
+  });
+
+  it('should return sync values when all cached (getByKeys)', async () => {
+    const map = new ProjectedLazyMap<string, TestObject>({
+      key: (item) => item.id,
+      values: (ids) => testData.filter((item) => ids.includes(item.id)),
+    });
+
+    // populate cache
+    await map.getByKeys(['1', '2', '3']);
+
+    // all cached - should be sync
+    const result = map.getByKeys(['1', '2']);
+
+    expect(result instanceof Promise).toBe(false);
+    expect(result).toEqual([testData[0], testData[1]]);
+  });
+
+  it('should return async when some keys not cached (getByKeys)', async () => {
+    const map = new ProjectedLazyMap<string, TestObject>({
+      key: (item) => item.id,
+      values: (ids) => testData.filter((item) => ids.includes(item.id)),
+    });
+
+    // populate cache with only '1'
+    await map.getByKey('1');
+
+    // '2' not cached - should be async
+    const result = map.getByKeys(['1', '2']);
+
+    expect(result instanceof Promise).toBe(true);
+
+    const values = await result;
+
+    expect(values).toEqual([testData[0], testData[1]]);
+  });
+
+  it('should return sync value from refresh when cached', async () => {
+    const map = new ProjectedLazyMap<string, TestObject>({
+      key: (item) => item.id,
+      values: (ids) => testData.filter((item) => ids.includes(item.id)),
+    });
+
+    // populate cache
+    await map.getByKey('1');
+
+    // refresh always returns sync (stale value)
+    const stale = map.refresh('1');
+
+    expect(stale).toBe(testData[0]);
+  });
+
+  it('should return sync undefined from refresh when not cached', () => {
+    const map = new ProjectedLazyMap<string, TestObject>({
+      key: (item) => item.id,
+      values: (ids) => testData.filter((item) => ids.includes(item.id)),
+    });
+
+    // refresh always returns sync (undefined if not cached)
+    const stale = map.refresh('1');
+
+    expect(stale).toBe(undefined);
+  });
+});
+
 describe('fetcher', () => {
   it('should create map with createProjectedLazyMap', () => {
     const map = createProjectedLazyMap<string, TestObject>({

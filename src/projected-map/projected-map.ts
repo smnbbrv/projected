@@ -4,10 +4,11 @@ import type { Protection } from '../types/protection.js';
 import { deepFreeze } from '../utils/deep-freeze.js';
 import { defined } from '../utils/defined.js';
 
-type RefreshState<K, V> = {
-  promise: Promise<Map<K, V>>;
-  stale: Promise<Map<K, V>> | undefined;
-};
+type CacheState<K, V> =
+  | { status: 'empty' }
+  | { status: 'pending'; promise: Promise<Map<K, V>> }
+  | { status: 'resolved'; map: Map<K, V> }
+  | { status: 'refreshing'; map: Map<K, V>; promise: Promise<Map<K, V>> };
 
 export type ProjectedMapOptions<K, V> = {
   /**
@@ -46,8 +47,7 @@ export type ProjectedMapOptions<K, V> = {
  * This is useful when you have a fairly small collection of objects that you need to fetch and actualize from the remote data source.
  */
 export class ProjectedMap<K, V> {
-  private _cache: Promise<Map<K, V>> | undefined;
-  private _refresh: RefreshState<K, V> | undefined;
+  private _state: CacheState<K, V> = { status: 'empty' };
   private readonly key: (item: V) => K;
   private readonly values: ProjectedMapOptions<K, V>['values'];
   private readonly protection: Maybe<Protection>;
@@ -62,31 +62,47 @@ export class ProjectedMap<K, V> {
 
   /**
    * Get all values as a map
-   * @returns Promise that resolves to a map of all values
+   * @returns Map of all values (sync if cached) or Promise that resolves to a map
    */
-  async getAllAsMap(): Promise<Map<K, V>> {
-    return new Map(await this.cache);
+  getAllAsMap(): MaybePromise<Map<K, V>> {
+    const cache = this.getCache();
+
+    if (cache instanceof Promise) {
+      return cache.then((map) => new Map(map));
+    }
+
+    return new Map(cache);
   }
 
   /**
    * Get all values as an array (the order is preserved)
-   * @returns Promise that resolves to an array of keys
+   * @returns Array of values (sync if cached) or Promise that resolves to an array
    */
-  async getAll(): Promise<V[]> {
-    return [...(await this.cache).values()];
+  getAll(): MaybePromise<V[]> {
+    const cache = this.getCache();
+
+    if (cache instanceof Promise) {
+      return cache.then((map) => [...map.values()]);
+    }
+
+    return [...cache.values()];
   }
 
   /**
    * Get values by keys, but return `undefined` for missing keys
    * @param keys Array of keys
-   * @returns Promise that resolves to an array of values
+   * @returns Array of values (sync if cached) or Promise that resolves to an array
    */
-  async getByKeysSparse(keys: K[]): Promise<Maybe<V>[]> {
+  getByKeysSparse(keys: K[]): MaybePromise<Maybe<V>[]> {
     if (!keys.length) {
       return [];
     }
 
-    const cache = await this.cache;
+    const cache = this.getCache();
+
+    if (cache instanceof Promise) {
+      return cache.then((map) => keys.map((id) => map.get(id)));
+    }
 
     return keys.map((id) => cache.get(id));
   }
@@ -94,30 +110,42 @@ export class ProjectedMap<K, V> {
   /**
    * Fetch many values by keys
    * @param keys Array of keys
-   * @returns Promise that resolves to an array of values
+   * @returns Array of values (sync if cached) or Promise that resolves to an array
    */
-  async getByKeys(keys: K[]): Promise<V[]> {
-    return (await this.getByKeysSparse(keys)).filter(defined);
+  getByKeys(keys: K[]): MaybePromise<V[]> {
+    const sparse = this.getByKeysSparse(keys);
+
+    if (sparse instanceof Promise) {
+      return sparse.then((values) => values.filter(defined));
+    }
+
+    return sparse.filter(defined);
   }
 
   /**
    * Get value by key
    * @param key Key
-   * @returns Promise that resolves to a value
+   * @returns Value (sync if cached) or Promise that resolves to a value
    */
-  async getByKey(key: K): Promise<Maybe<V>> {
-    return (await this.cache).get(key);
+  getByKey(key: K): MaybePromise<Maybe<V>> {
+    const cache = this.getCache();
+
+    if (cache instanceof Promise) {
+      return cache.then((map) => map.get(key));
+    }
+
+    return cache.get(key);
   }
 
-  async get(keyOrKeys: K[]): Promise<V[]>;
-  async get(keyOrKeys: K): Promise<Maybe<V>>;
+  get(keyOrKeys: K[]): MaybePromise<V[]>;
+  get(keyOrKeys: K): MaybePromise<Maybe<V>>;
 
   /**
    * Mixed get method
    * @param keyOrKeys Key or array of keys
-   * @returns Promise that resolves to a value or an array of values depending on the input
+   * @returns Value or array of values (sync if cached) or Promise
    */
-  async get(keyOrKeys: K | K[]): Promise<V[] | Maybe<V>> {
+  get(keyOrKeys: K | K[]): MaybePromise<V[] | Maybe<V>> {
     if (Array.isArray(keyOrKeys)) {
       return this.getByKeys(keyOrKeys);
     }
@@ -130,7 +158,7 @@ export class ProjectedMap<K, V> {
    * @returns void
    */
   clear() {
-    this._cache = undefined;
+    this._state = { status: 'empty' };
   }
 
   /**
@@ -139,69 +167,106 @@ export class ProjectedMap<K, V> {
    * - Triggers a background refresh
    * - Replaces cached map only when refresh succeeds
    * - On refresh error, keeps serving the stale map
-   * @returns Promise that resolves to a copy of the current cached map, or undefined if no values are cached
+   * @returns Copy of the current cached map, or undefined if no values are cached (always sync)
    */
-  refresh(): Promise<Maybe<Map<K, V>>> {
-    // if refresh already in progress, return its stale value
-    if (this._refresh) {
-      return this._refresh.stale?.then((map) => new Map(map)).catch(() => undefined) ?? Promise.resolve(undefined);
+  refresh(): Maybe<Map<K, V>> {
+    const state = this._state;
+
+    // already refreshing - return copy of stale map
+    if (state.status === 'refreshing') {
+      return new Map(state.map);
     }
 
-    const stale = this._cache;
+    // nothing cached or still pending - return undefined
+    if (state.status === 'empty' || state.status === 'pending') {
+      this.triggerBackgroundRefresh(undefined);
 
-    // start background refresh
+      return undefined;
+    }
+
+    // have cached map - trigger refresh and return copy of stale
+    const staleMap = state.map;
+
+    this.triggerBackgroundRefresh(staleMap);
+
+    return new Map(staleMap);
+  }
+
+  private getCache(): MaybePromise<Map<K, V>> {
+    const state = this._state;
+
+    // cache hit - return sync
+    if (state.status === 'resolved' || state.status === 'refreshing') {
+      return state.map;
+    }
+
+    // already fetching - return existing promise
+    if (state.status === 'pending') {
+      return state.promise;
+    }
+
+    // cache miss - fetch
+    return this.fetch();
+  }
+
+  private fetch(): Promise<Map<K, V>> {
     const promise = Promise.resolve()
       .then(() => this.values())
-      .then((array) =>
-        array.reduce(
-          (map, item) => map.set(this.key(item), this.protection === 'freeze' ? deepFreeze(item) : item),
-          new Map<K, V>(),
-        ),
-      )
+      .then((array) => this.arrayToMap(array))
       .then((map) => {
-        // only update cache if we should cache
         if (this.shouldCache) {
-          this._cache = Promise.resolve(map);
+          this._state = { status: 'resolved', map };
+        } else {
+          this._state = { status: 'empty' };
+        }
+
+        return map;
+      })
+      .catch((err) => {
+        this._state = { status: 'empty' };
+
+        throw err;
+      });
+
+    this._state = { status: 'pending', promise };
+
+    return promise;
+  }
+
+  private triggerBackgroundRefresh(staleMap: Map<K, V> | undefined) {
+    const promise = Promise.resolve()
+      .then(() => this.values())
+      .then((array) => this.arrayToMap(array))
+      .then((map) => {
+        if (this.shouldCache) {
+          this._state = { status: 'resolved', map };
+        } else {
+          this._state = { status: 'empty' };
         }
 
         return map;
       })
       .catch(() => {
-        // on error, keep stale value - don't update cache
-      })
-      .finally(() => {
-        this._refresh = undefined;
+        // on error, keep stale map if we have one
+        if (staleMap && this.shouldCache) {
+          this._state = { status: 'resolved', map: staleMap };
+        } else {
+          this._state = { status: 'empty' };
+        }
       });
 
-    this._refresh = { promise: promise as Promise<Map<K, V>>, stale };
-
-    // return copy of stale map immediately, or undefined if nothing cached
-    return stale?.then((map) => new Map(map)).catch(() => undefined) ?? Promise.resolve(undefined);
+    if (staleMap) {
+      this._state = { status: 'refreshing', map: staleMap, promise: promise as Promise<Map<K, V>> };
+    } else {
+      this._state = { status: 'pending', promise: promise as Promise<Map<K, V>> };
+    }
   }
 
-  private get cache() {
-    if (!this._cache) {
-      this._cache = Promise.resolve(this.values())
-        .then((array) =>
-          array.reduce(
-            (map, item) => map.set(this.key(item), this.protection === 'freeze' ? deepFreeze(item) : item),
-            new Map(),
-          ),
-        )
-        .catch((err) => {
-          this.clear();
-          throw err;
-        })
-        .finally(() => {
-          if (!this.shouldCache) {
-            setTimeout(() => {
-              this.clear();
-            });
-          }
-        });
-    }
-
-    return this._cache;
+  private arrayToMap(array: V[]): Map<K, V> {
+    return array.reduce(
+      (map, item) => map.set(this.key(item), this.protection === 'freeze' ? deepFreeze(item) : item),
+      new Map<K, V>(),
+    );
   }
 }
 

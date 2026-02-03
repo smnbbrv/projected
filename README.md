@@ -1,6 +1,18 @@
 # projected
 
-Collections of utilities. Hides the complexity of fetching and caching data from a remote source regardless of the number of consumers.
+A TypeScript library for managing data fetching and caching from remote sources. Handles the complexity of lazy loading, request deduplication, caching, and background refresh - regardless of how many consumers request the same data.
+
+## Why?
+
+When building applications that fetch data from APIs, databases, or other remote sources, you often face these challenges:
+
+- **Multiple consumers requesting the same data** - leads to duplicate network calls
+- **Managing cache state** - knowing when data is fresh, stale, or being fetched
+- **Graceful refresh** - updating data without blocking consumers (stale-while-revalidate)
+- **Request batching** - combining many individual lookups into efficient batch requests
+- **Synchronous access to cached data** - avoiding unnecessary async overhead for cached values
+
+This library provides three utilities that solve these problems with a clean, type-safe API.
 
 ## Installation
 
@@ -8,121 +20,296 @@ Collections of utilities. Hides the complexity of fetching and caching data from
 npm i projected
 ```
 
+## Features
+
+- **Sync returns when cached** - all methods return `T | Promise<T>`, avoiding Promise overhead for cached values
+- **Request deduplication** - multiple consumers share the same in-flight request
+- **Stale-while-revalidate** - `refresh()` returns cached data immediately while fetching fresh data in background
+- **Request batching** - `ProjectedLazyMap` batches individual lookups into single batch requests
+- **Pluggable cache** - use built-in `Map`, LRU cache, or any custom implementation
+- **Deep freeze protection** - optionally freeze returned objects to prevent accidental mutations
+
+## API Overview
+
+| Class                    | Use Case                                        | Fetches                       |
+| ------------------------ | ----------------------------------------------- | ----------------------------- |
+| `ProjectedValue<V>`      | Single value (e.g., config, user session)       | Once, on first access         |
+| `ProjectedMap<K, V>`     | Small collections (e.g., categories, countries) | All items at once             |
+| `ProjectedLazyMap<K, V>` | Large collections (e.g., users, products)       | Only requested items, batched |
+
 ## ProjectedValue
 
-A single value that is stored in memory, but being fetched from a remote source on demand. This is useful when you have a single object that you need to fetch and actualize from the remote data source.
-
-- lazy: object is obtained only when needed
-- all consumers are re-using the same connection, which means only one call is issued regardless of the number of consumers
+Caches a single value fetched from a remote source.
 
 ```ts
 import { ProjectedValue } from 'projected';
 
-type Value = {
-  key: string;
-  value: string;
-};
-
-const value = new ProjectedValue<Value>({
-  // function that fetches the data from a remote source
+const config = new ProjectedValue({
   value: async () => {
-    // here you would fetch the data from a remote source
-    return { key: 'key1', value: 'Value for key key1' };
+    const response = await fetch('/api/config');
+    return response.json();
   },
 });
 
-await value.get(); // Value
+// first call - fetches from remote
+const result1 = await config.get();
+
+// second call - returns T (not Promise), but await still works
+const result2 = await config.get();
+```
+
+### Methods
+
+| Method      | Return Type       | Description                                               |
+| ----------- | ----------------- | --------------------------------------------------------- |
+| `get()`     | `T \| Promise<T>` | Returns cached value (sync) or fetches and caches (async) |
+| `refresh()` | `T \| undefined`  | Returns cached value, triggers background refresh         |
+| `clear()`   | `void`            | Clears cache, next `get()` will fetch fresh               |
+
+### Sync vs Async
+
+Methods return `T | Promise<T>`. You can always use `await` - it works on both:
+
+```ts
+// always works, regardless of cache state
+const value = await config.get();
+```
+
+For performance-critical code, check with `instanceof Promise` to avoid async overhead:
+
+```ts
+const result = config.get();
+
+if (result instanceof Promise) {
+  // first call or after clear() - need to await
+  const value = await result;
+} else {
+  // cached - use directly, no async overhead
+  console.log(result);
+}
 ```
 
 ## ProjectedMap
 
-A collection of objects that are stored in memory, but being fetched from a remote source on demand. This is useful when you have a fairly small collection of objects that you need to fetch and actualize from the remote data source.
+Caches an entire collection, fetched all at once. Unlike `ProjectedValue`, it allows accessing individual items by key. Unlike `ProjectedLazyMap`, it provides access to all items at once. Best for small, frequently-accessed collections where you need both.
 
-- lazy: objects are obtained only when needed
-- provides a way to get all items as array or map
-- all items are cached until the collection is cleared
-- all consumers are re-using the same connection, which means only one call is issued regardless of the number of consumers
-  
 ```ts
 import { ProjectedMap } from 'projected';
 
-type Value = {
-  key: string;
-  value: string;
-};
+type Country = { code: string; name: string };
 
-const collection = new ProjectedMap<string, Value>({
-  key: 'key',
-  // function that fetches the data from a remote source
+const countries = new ProjectedMap<string, Country>({
+  key: (country) => country.code,
   values: async () => {
-    // here you would fetch the data from a remote source
-    return Array.from({ length: 10 }, (_, i) => ({ key: `key${i}`, value: `Value for key key${i}` }));
+    const response = await fetch('/api/countries');
+    return response.json();
   },
 });
 
-await collection.getAll(); // Array of all items
-await collection.get('key1'); // Value for key key1
-await collection.get(['key2', 'key3']); // Value for key2, key3
+// fetches all countries, caches them
+await countries.getByKey('US'); // { code: 'US', name: 'United States' }
+
+// all subsequent calls return T (not Promise) - can still use await
+await countries.getByKey('DE');
+await countries.getByKeys(['FR', 'IT']);
+await countries.getAll();
+await countries.getAllAsMap();
 ```
 
+### Methods
+
+| Method                  | Return Type                          | Description                                             |
+| ----------------------- | ------------------------------------ | ------------------------------------------------------- |
+| `getByKey(key)`         | `T \| undefined \| Promise<...>`     | Get single item by key                                  |
+| `getByKeys(keys)`       | `T[] \| Promise<T[]>`                | Get multiple items (skips missing)                      |
+| `getByKeysSparse(keys)` | `(T \| undefined)[] \| Promise<...>` | Get multiple items (keeps order, undefined for missing) |
+| `getAll()`              | `T[] \| Promise<T[]>`                | Get all items as array                                  |
+| `getAllAsMap()`         | `Map<K, T> \| Promise<...>`          | Get all items as Map                                    |
+| `get(keyOrKeys)`        | mixed                                | Shorthand for `getByKey` or `getByKeys`                 |
+| `refresh()`             | `Map<K, T> \| undefined`             | Returns cached map, triggers background refresh         |
+| `clear()`               | `void`                               | Clears cache                                            |
 
 ## ProjectedLazyMap
 
-A collection of objects that are not stored in memory, but are fetched from a remote source when needed. This is useful when you have a large collection of objects that you don't want to load all at once.
-
-- lazy: objects are obtained only when needed
-- bundles all requests into a single request by the specified delay and chunk size
-- cache: fetched objects can be stored in a cache
-
-### Default (no cache)
+Fetches items on-demand with automatic request batching. Best for large collections where you only need specific items.
 
 ```ts
 import { ProjectedLazyMap } from 'projected';
 
-type Value = {
-  key: string;
-  value: string;
-};
+type User = { id: string; name: string };
 
-const collection = new ProjectedLazyMap<string, Value>({
-  key: 'key',
-  // function that fetches the data from a remote source given a list of deduplicated grouped keys
-  values: async (keys) => {
-    // here you would fetch the data from a remote source
-    return keys.map((key) => ({ key, value: `Value for key ${key}` }));
+const users = new ProjectedLazyMap<string, User>({
+  key: (user) => user.id,
+  values: async (ids) => {
+    // called with batched ids, e.g., ['user1', 'user2', 'user3']
+    const response = await fetch(`/api/users?ids=${ids.join(',')}`);
+    return response.json();
   },
-  // groups all requests in a single request within the last 10ms, but no more than 1000 requests per chunk
-  delay: 10, 
-  maxChunkSize: 1000, 
+  delay: 50, // batch requests within 50ms window (default)
+  maxChunkSize: 1000, // max items per batch (default)
+  cache: true, // use built-in Map cache (default)
 });
 
-await collection.get('key1'); // Value for key key1
-await collection.get(['key2', 'key3']); // Value for key2, key3
+// these three calls within 50ms get batched into one request
+const [user1, user2, user3] = await Promise.all([
+  users.getByKey('user1'),
+  users.getByKey('user2'),
+  users.getByKey('user3'),
+]);
+
+// subsequent calls for cached users return T (not Promise)
+await users.getByKey('user1');
 ```
 
-### With cache
+### Request Batching
 
-You can opt to use a cache to store the fetched objects. The cache must implement type `ProjectedMapCache`. This can be a normal js `Map`, [lru-cache](https://www.npmjs.com/package/lru-cache) or any similar cache implementation.
+When multiple `getByKey()` calls happen within the `delay` window, they're combined into a single `values()` call:
 
 ```ts
-import { ProjectedLazyMap } from 'projected';
+// all these calls within 50ms...
+users.getByKey('a');
+users.getByKey('b');
+users.getByKey('c');
 
-type Value = {
-  key: string;
-  value: string;
-};
+// ...result in one values() call with ['a', 'b', 'c']
+```
 
-const collection = new ProjectedLazyMap<string, Value>({
-  key: 'key',
-  values: async (keys) => {
-    // here you would fetch the data from a remote source
-    return keys.map((key) => ({ key, value: `Value for key ${key}` }));
-  },
-  cache: new Map(),
+### Custom Cache
+
+Use any cache implementing `ProjectedMapCache` interface (compatible with `Map`, `lru-cache`, etc.):
+
+```ts
+import { LRUCache } from 'lru-cache';
+
+const users = new ProjectedLazyMap<string, User>({
+  key: (user) => user.id,
+  values: async (ids) => fetchUsers(ids),
+  cache: new LRUCache({ max: 1000 }),
+});
+```
+
+Disable caching:
+
+```ts
+const users = new ProjectedLazyMap<string, User>({
+  key: (user) => user.id,
+  values: async (ids) => fetchUsers(ids),
+  cache: false,
+});
+```
+
+### Methods
+
+| Method                  | Return Type                            | Description                                          |
+| ----------------------- | -------------------------------------- | ---------------------------------------------------- |
+| `getByKey(key)`         | `T \| undefined \| Promise<...>`       | Get single item (sync if cached)                     |
+| `getByKeys(keys)`       | `T[] \| Promise<T[]>`                  | Get multiple items (sync if all cached)              |
+| `getByKeysSparse(keys)` | `(T \| undefined)[] \| Promise<...>`   | Get multiple items preserving order                  |
+| `get(keyOrKeys)`        | mixed                                  | Shorthand for `getByKey` or `getByKeys`              |
+| `refresh(keyOrKeys)`    | `T \| undefined \| (T \| undefined)[]` | Returns cached value(s), triggers background refresh |
+| `clear()`               | `void`                                 | Clears entire cache                                  |
+
+## Common Options
+
+All three classes support these options:
+
+| Option       | Type                           | Default  | Description                            |
+| ------------ | ------------------------------ | -------- | -------------------------------------- |
+| `protection` | `'freeze' \| 'none'`           | `'none'` | Deep freeze returned objects           |
+| `cache`      | `boolean \| ProjectedMapCache` | `true`   | Enable/disable or provide custom cache |
+
+### Protection
+
+Enable `protection: 'freeze'` to prevent accidental mutations:
+
+```ts
+const config = new ProjectedValue({
+  value: async () => ({ setting: 'value' }),
+  protection: 'freeze',
 });
 
-await collection.get('key1'); // Value for key key1
-await collection.get(['key2', 'key3']); // Value for key2, key3
+const result = await config.get();
+result.setting = 'new'; // throws TypeError in strict mode
+```
+
+## Stale-While-Revalidate Pattern
+
+All classes implement `refresh()` for non-blocking cache updates:
+
+```ts
+// returns current cached value immediately (sync)
+const stale = users.refresh('user1');
+
+// background fetch updates cache
+// next get() returns fresh data
+```
+
+This is useful for:
+
+- Periodic background refresh
+- Optimistic UI updates
+- Keeping data fresh without blocking renders
+
+## Guaranteed Sync Access Pattern
+
+For server applications that prefetch data at startup, you can guarantee sync access by:
+
+1. Prefetching data during initialization
+2. Using `clear()` + background refetch instead of blocking refresh
+3. Asserting sync returns in your getters
+
+```ts
+const map = new ProjectedMap<string, Category>({
+  protection: 'freeze',
+  key: (v) => v.id,
+  values: () => fetchCategories(),
+});
+
+// on startup - prefetch and wait
+export async function init() {
+  await map.getAll();
+
+  // subscribe to changes - clear triggers lazy refetch on next access
+  // or use refresh() for immediate background refetch
+  dataChanges$.subscribe(() => map.clear());
+}
+
+// after init, these always return sync - use assertion for pure return types
+export function getAllCategories(): Category[] {
+  const result = map.getAll();
+
+  if (result instanceof Promise) {
+    throw new Error('Categories not initialized');
+  }
+
+  return result;
+}
+
+export function getCategory(id: string): Category | undefined {
+  const result = map.getByKey(id);
+
+  if (result instanceof Promise) {
+    throw new Error('Categories not initialized');
+  }
+
+  return result;
+}
+```
+
+This gives you pure sync return types with no `MaybePromise` wrapper, while still benefiting from the caching and refresh infrastructure.
+
+## TypeScript
+
+Full type inference is supported:
+
+```ts
+const map = new ProjectedMap({
+  key: (item: { id: string }) => item.id,
+  values: async () => [{ id: '1', name: 'test' }],
+});
+
+// result is { id: string; name: string } | undefined
+const result = await map.getByKey('1');
 ```
 
 ## License

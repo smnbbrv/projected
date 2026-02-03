@@ -4,6 +4,52 @@ import { createProjectedValue, ProjectedValue } from './projected-value.js';
 
 const testValue = { id: '1', title: 'title1' };
 
+describe('sync behavior', () => {
+  it('should return sync value when cached', async () => {
+    const value = new ProjectedValue({
+      value: () => testValue,
+    });
+
+    // first call - async (fetching)
+    const result1 = value.get();
+
+    expect(result1 instanceof Promise).toBe(true);
+
+    await result1;
+
+    // second call - sync (cached)
+    const result2 = value.get();
+
+    expect(result2 instanceof Promise).toBe(false);
+    expect(result2).toBe(testValue);
+  });
+
+  it('should return sync value from refresh when cached', async () => {
+    const value = new ProjectedValue({
+      value: () => testValue,
+    });
+
+    // populate cache
+    await value.get();
+
+    // refresh always returns sync (stale value)
+    const stale = value.refresh();
+
+    expect(stale).toBe(testValue);
+  });
+
+  it('should return sync undefined from refresh when not cached', () => {
+    const value = new ProjectedValue({
+      value: () => testValue,
+    });
+
+    // refresh always returns sync (undefined if not cached)
+    const stale = value.refresh();
+
+    expect(stale).toBe(undefined);
+  });
+});
+
 it('should create value with createProjectedValue', () => {
   const value = createProjectedValue({
     value: () => testValue,
@@ -25,12 +71,14 @@ it('should implement get', async () => {
   expect(res).toEqual({ id: '1', title: 'title1' });
 });
 
-it('should throw if return value is undefined', async () => {
+it('should allow undefined as a return value', async () => {
   const value = new ProjectedValue({
     value: () => undefined,
   });
 
-  await expect(value.get()).rejects.toThrow('Return value "undefined" is not allowed in ProjectedValue');
+  const res = await value.get();
+
+  expect(res).toBe(undefined);
 });
 
 it('should implement clear', async () => {

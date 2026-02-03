@@ -314,4 +314,4 @@ const result = await map.getByKey('1');
 
 ## License
 
-[MIT](LICENSE.md)
+[MIT](LICENSE)

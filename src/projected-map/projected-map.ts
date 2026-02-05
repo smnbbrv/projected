@@ -163,33 +163,26 @@ export class ProjectedMap<K, V> {
 
   /**
    * Refresh the values using stale-while-revalidate pattern.
-   * - Returns a copy of the current cached map immediately (if exists)
    * - Triggers a background refresh
    * - Replaces cached map only when refresh succeeds
    * - On refresh error, keeps serving the stale map
-   * @returns Copy of the current cached map, or undefined if no values are cached (always sync)
+   * @returns Promise that resolves to the fresh map, or rejects on error
    */
-  refresh(): Maybe<Map<K, V>> {
+  refresh(): Promise<Map<K, V>> {
     const state = this._state;
 
-    // already refreshing - return copy of stale map
+    // already refreshing - return existing promise
     if (state.status === 'refreshing') {
-      return new Map(state.map);
+      return state.promise;
     }
 
-    // nothing cached or still pending - return undefined
+    // nothing cached or still pending
     if (state.status === 'empty' || state.status === 'pending') {
-      this.triggerBackgroundRefresh(undefined);
-
-      return undefined;
+      return this.triggerBackgroundRefresh(undefined);
     }
 
-    // have cached map - trigger refresh and return copy of stale
-    const staleMap = state.map;
-
-    this.triggerBackgroundRefresh(staleMap);
-
-    return new Map(staleMap);
+    // have cached map - trigger refresh
+    return this.triggerBackgroundRefresh(state.map);
   }
 
   private getCache(): MaybePromise<Map<K, V>> {
@@ -233,7 +226,7 @@ export class ProjectedMap<K, V> {
     return promise;
   }
 
-  private triggerBackgroundRefresh(staleMap: Map<K, V> | undefined) {
+  private triggerBackgroundRefresh(staleMap: Map<K, V> | undefined): Promise<Map<K, V>> {
     const promise = Promise.resolve()
       .then(() => this.values())
       .then((array) => this.arrayToMap(array))
@@ -246,20 +239,24 @@ export class ProjectedMap<K, V> {
 
         return map;
       })
-      .catch(() => {
+      .catch((err) => {
         // on error, keep stale map if we have one
         if (staleMap && this.shouldCache) {
           this._state = { status: 'resolved', map: staleMap };
         } else {
           this._state = { status: 'empty' };
         }
+
+        throw err;
       });
 
     if (staleMap) {
-      this._state = { status: 'refreshing', map: staleMap, promise: promise as Promise<Map<K, V>> };
+      this._state = { status: 'refreshing', map: staleMap, promise };
     } else {
-      this._state = { status: 'pending', promise: promise as Promise<Map<K, V>> };
+      this._state = { status: 'pending', promise };
     }
+
+    return promise;
   }
 
   private arrayToMap(array: V[]): Map<K, V> {

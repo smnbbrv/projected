@@ -180,48 +180,41 @@ export class ProjectedLazyMap<K, V> {
     this.cache.clear();
   }
 
-  refresh(key: K): Maybe<V>;
-  refresh(keys: K[]): Maybe<V>[];
+  refresh(key: K): Promise<Maybe<V>>;
+  refresh(keys: K[]): Promise<Maybe<V>[]>;
 
   /**
    * Refresh value(s) using stale-while-revalidate pattern.
-   * - Returns the current cached value(s) immediately (sync)
    * - Triggers a background refresh for the specified key(s)
    * - Updates cache entries only when refresh succeeds
    * - On refresh error, keeps serving the stale values
    * @param keyOrKeys Key or array of keys to refresh
-   * @returns Current cached value(s) (always sync)
+   * @returns Promise that resolves to the fresh value(s), or rejects on error
    */
-  refresh(keyOrKeys: K | K[]): Maybe<V> | Maybe<V>[] {
+  async refresh(keyOrKeys: K | K[]): Promise<Maybe<V> | Maybe<V>[]> {
     const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
-    const staleValues = keys.map((key) => this.cache.get(key));
 
-    // trigger background refresh
-    this.fetcher
-      .resolve(keys)
-      .then((fetchedMap) => {
-        fetchedMap.forEach((value, valueKey) => {
-          if (!value) {
-            return;
-          }
+    const fetchedMap = await this.fetcher.resolve(keys);
 
-          if (this.protection === 'freeze') {
-            deepFreeze(value);
-          }
+    fetchedMap.forEach((value, valueKey) => {
+      if (!value) {
+        return;
+      }
 
-          this.cache.set(valueKey, value);
-        });
-      })
-      .catch(() => {
-        // on error, keep stale values - don't update cache
-      });
+      if (this.protection === 'freeze') {
+        deepFreeze(value);
+      }
 
-    // return stale values immediately (sync)
+      this.cache.set(valueKey, value);
+    });
+
+    const values = keys.map((key) => fetchedMap.get(key));
+
     if (Array.isArray(keyOrKeys)) {
-      return staleValues;
+      return values;
     }
 
-    return staleValues[0];
+    return values[0];
   }
 }
 

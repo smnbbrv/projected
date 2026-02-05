@@ -1,4 +1,4 @@
-import { it, expect, describe, vi } from 'vitest';
+import { it, expect, describe } from 'vitest';
 
 import { createProjectedValue, ProjectedValue } from './projected-value.js';
 
@@ -24,29 +24,17 @@ describe('sync behavior', () => {
     expect(result2).toBe(testValue);
   });
 
-  it('should return sync value from refresh when cached', async () => {
+  it('should return promise from refresh', async () => {
     const value = new ProjectedValue({
       value: () => testValue,
     });
 
-    // populate cache
-    await value.get();
+    // refresh always returns a promise
+    const result = value.refresh();
 
-    // refresh always returns sync (stale value)
-    const stale = value.refresh();
+    expect(result instanceof Promise).toBe(true);
 
-    expect(stale).toBe(testValue);
-  });
-
-  it('should return sync undefined from refresh when not cached', () => {
-    const value = new ProjectedValue({
-      value: () => testValue,
-    });
-
-    // refresh always returns sync (undefined if not cached)
-    const stale = value.refresh();
-
-    expect(stale).toBe(undefined);
+    await result;
   });
 });
 
@@ -117,33 +105,17 @@ it('should propagate errors', async () => {
 });
 
 describe('refresh', () => {
-  it('should return undefined when nothing is cached', async () => {
+  it('should fetch and resolve to fresh value when nothing is cached', async () => {
     const value = new ProjectedValue({
       value: () => testValue,
     });
 
-    const stale = await value.refresh();
+    const fresh = await value.refresh();
 
-    expect(stale).toBeUndefined();
+    expect(fresh).toEqual(testValue);
   });
 
-  it('should return cached value immediately', async () => {
-    const value = new ProjectedValue({
-      value: () => structuredClone(testValue),
-    });
-
-    // populate cache
-    const initial = await value.get();
-
-    expect(initial).toEqual({ id: '1', title: 'title1' });
-
-    // refresh should return stale value immediately
-    const stale = await value.refresh();
-
-    expect(stale).toBe(initial);
-  });
-
-  it('should trigger background fetch and update cache on success', async () => {
+  it('should resolve to fresh value after fetch completes', async () => {
     let fetchCount = 0;
 
     const value = new ProjectedValue({
@@ -160,22 +132,14 @@ describe('refresh', () => {
     expect(initial.title).toBe('title1');
     expect(fetchCount).toBe(1);
 
-    // refresh returns stale immediately
-    const stale = await value.refresh();
+    // refresh resolves to fresh value
+    const fresh = await value.refresh();
 
-    expect(stale).toBe(initial);
-
-    // wait for background fetch to complete
-    await vi.waitFor(async () => {
-      const updated = await value.get();
-
-      expect(updated.title).toBe('title2');
-    });
-
+    expect(fresh.title).toBe('title2');
     expect(fetchCount).toBe(2);
   });
 
-  it('should keep stale value on refresh error', async () => {
+  it('should keep stale value on refresh error and reject promise', async () => {
     let shouldFail = false;
 
     const value = new ProjectedValue({
@@ -196,13 +160,8 @@ describe('refresh', () => {
     // make next fetch fail
     shouldFail = true;
 
-    // refresh returns stale immediately
-    const stale = await value.refresh();
-
-    expect(stale).toBe(initial);
-
-    // wait a bit for background fetch to complete (and fail)
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // refresh should reject
+    await expect(value.refresh()).rejects.toThrow('refresh error');
 
     // cache should still have the original value
     const afterError = await value.get();
@@ -227,13 +186,15 @@ describe('refresh', () => {
 
     expect(fetchCount).toBe(1);
 
-    // call refresh multiple times
-    value.refresh();
-    value.refresh();
-    value.refresh();
+    // call refresh multiple times - all return same promise
+    const p1 = value.refresh();
+    const p2 = value.refresh();
+    const p3 = value.refresh();
 
-    // wait for background fetch to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(p1).toBe(p2);
+    expect(p2).toBe(p3);
+
+    await p1;
 
     // should only have fetched twice (initial + one refresh)
     expect(fetchCount).toBe(2);

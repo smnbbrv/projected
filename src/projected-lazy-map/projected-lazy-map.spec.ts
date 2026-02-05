@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 import { createProjectedLazyMap, ProjectedLazyMap } from './projected-lazy-map.js';
 
@@ -68,31 +68,18 @@ describe('sync behavior', () => {
     expect(values).toEqual([testData[0], testData[1]]);
   });
 
-  it('should return sync value from refresh when cached', async () => {
+  it('should return promise from refresh', async () => {
     const map = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
-    // populate cache
-    await map.getByKey('1');
+    // refresh always returns a promise
+    const result = map.refresh('1');
 
-    // refresh always returns sync (stale value)
-    const stale = map.refresh('1');
+    expect(result instanceof Promise).toBe(true);
 
-    expect(stale).toBe(testData[0]);
-  });
-
-  it('should return sync undefined from refresh when not cached', () => {
-    const map = new ProjectedLazyMap<string, TestObject>({
-      key: (item) => item.id,
-      values: (ids) => testData.filter((item) => ids.includes(item.id)),
-    });
-
-    // refresh always returns sync (undefined if not cached)
-    const stale = map.refresh('1');
-
-    expect(stale).toBe(undefined);
+    await result;
   });
 });
 
@@ -430,60 +417,18 @@ describe('cache', () => {
 });
 
 describe('refresh', () => {
-  it('should return undefined for uncached key', async () => {
+  it('should fetch and resolve to fresh value for uncached key', async () => {
     const map = new ProjectedLazyMap<string, TestObject>({
       key: (item) => item.id,
       values: (ids) => testData.filter((item) => ids.includes(item.id)),
     });
 
-    const stale = await map.refresh('3');
+    const fresh = await map.refresh('3');
 
-    expect(stale).toBeUndefined();
+    expect(fresh).toEqual(testData[2]);
   });
 
-  it('should return cached value immediately for single key', async () => {
-    const cache = new Map<string, TestObject>();
-
-    const map = new ProjectedLazyMap<string, TestObject>({
-      key: (item) => item.id,
-      values: (ids) => testData.filter((item) => ids.includes(item.id)),
-      cache,
-    });
-
-    // populate cache
-    const initial = await map.getByKey('3');
-
-    expect(initial).toEqual(testData[2]);
-    expect(cache.has('3')).toBe(true);
-
-    // refresh should return stale value immediately
-    const stale = await map.refresh('3');
-
-    expect(stale).toBe(initial);
-  });
-
-  it('should return cached values immediately for multiple keys', async () => {
-    const cache = new Map<string, TestObject>();
-
-    const map = new ProjectedLazyMap<string, TestObject>({
-      key: (item) => item.id,
-      values: (ids) => testData.filter((item) => ids.includes(item.id)),
-      cache,
-    });
-
-    // populate cache
-    await map.getByKeys(['3', '4']);
-
-    // refresh should return stale values immediately
-    const stale = await map.refresh(['3', '4', '5']);
-
-    expect(stale.length).toBe(3);
-    expect(stale[0]).toEqual(testData[2]);
-    expect(stale[1]).toEqual(testData[3]);
-    expect(stale[2]).toBeUndefined(); // '5' was not cached
-  });
-
-  it('should trigger background fetch and update cache on success', async () => {
+  it('should resolve to fresh value for single key', async () => {
     let fetchCount = 0;
     const cache = new Map<string, TestObject>();
 
@@ -505,27 +450,45 @@ describe('refresh', () => {
     expect(initial?.title).toBe('title3-v1');
     expect(fetchCount).toBe(1);
 
-    // refresh returns stale immediately
-    const stale = await map.refresh('3');
+    // refresh resolves to fresh value
+    const fresh = await map.refresh('3');
 
-    expect(stale?.title).toBe('title3-v1');
-
-    // wait for background fetch to complete
-    await vi.waitFor(async () => {
-      const updated = cache.get('3');
-
-      expect(updated?.title).toBe('title3-v2');
-    });
-
+    expect(fresh?.title).toBe('title3-v2');
     expect(fetchCount).toBe(2);
-
-    // get should now return updated value
-    const updated = await map.getByKey('3');
-
-    expect(updated?.title).toBe('title3-v2');
   });
 
-  it('should keep stale value on refresh error', async () => {
+  it('should resolve to fresh values for multiple keys', async () => {
+    let fetchCount = 0;
+    const cache = new Map<string, TestObject>();
+
+    const map = new ProjectedLazyMap<string, TestObject>({
+      key: (item) => item.id,
+      values: (ids) => {
+        fetchCount++;
+
+        return testData
+          .filter((item) => ids.includes(item.id))
+          .map((item) => ({ ...item, title: `${item.title}-v${fetchCount}` }));
+      },
+      cache,
+    });
+
+    // populate cache
+    await map.getByKeys(['3', '4']);
+
+    expect(fetchCount).toBe(1);
+
+    // refresh resolves to fresh values
+    const fresh = await map.refresh(['3', '4', '5']);
+
+    expect(fresh.length).toBe(3);
+    expect(fresh[0]?.title).toBe('title3-v2');
+    expect(fresh[1]?.title).toBe('title4-v2');
+    expect(fresh[2]?.title).toBe('title5-v2');
+    expect(fetchCount).toBe(2);
+  });
+
+  it('should keep stale value on refresh error and reject promise', async () => {
     let shouldFail = false;
     const cache = new Map<string, TestObject>();
 
@@ -549,13 +512,8 @@ describe('refresh', () => {
     // make next fetch fail
     shouldFail = true;
 
-    // refresh returns stale immediately
-    const stale = await map.refresh('3');
-
-    expect(stale).toEqual(testData[2]);
-
-    // wait a bit for background fetch to complete (and fail)
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // refresh should reject
+    await expect(map.refresh('3')).rejects.toThrow('refresh error');
 
     // cache should still have the original value
     expect(cache.get('3')).toEqual(testData[2]);

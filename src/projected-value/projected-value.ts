@@ -80,33 +80,26 @@ export class ProjectedValue<V> {
 
   /**
    * Refresh the value using stale-while-revalidate pattern.
-   * - Returns the current cached value immediately (if exists)
    * - Triggers a background refresh
    * - Replaces cached value only when refresh succeeds
    * - On refresh error, keeps serving the stale value
-   * @returns Current cached value, or undefined if no value is cached (always sync)
+   * @returns Promise that resolves to the fresh value, or rejects on error
    */
-  refresh(): Maybe<V> {
+  refresh(): Promise<V> {
     const state = this._state;
 
-    // already refreshing - return stale value
+    // already refreshing - return existing promise
     if (state.status === 'refreshing') {
-      return state.value;
+      return state.promise;
     }
 
-    // nothing cached or still pending - return undefined
+    // nothing cached or still pending
     if (state.status === 'empty' || state.status === 'pending') {
-      this.triggerBackgroundRefresh(undefined);
-
-      return undefined;
+      return this.triggerBackgroundRefresh(undefined);
     }
 
-    // have cached value - trigger refresh and return stale
-    const staleValue = state.value;
-
-    this.triggerBackgroundRefresh(staleValue);
-
-    return staleValue;
+    // have cached value - trigger refresh
+    return this.triggerBackgroundRefresh(state.value);
   }
 
   private fetch(): Promise<V> {
@@ -134,7 +127,7 @@ export class ProjectedValue<V> {
     return promise;
   }
 
-  private triggerBackgroundRefresh(staleValue: V | undefined) {
+  private triggerBackgroundRefresh(staleValue: V | undefined): Promise<V> {
     const promise = Promise.resolve()
       .then(() => this.valueFn())
       .then((v) => {
@@ -148,20 +141,24 @@ export class ProjectedValue<V> {
 
         return value;
       })
-      .catch(() => {
+      .catch((err) => {
         // on error, keep stale value if we have one
         if (staleValue !== undefined && this.shouldCache) {
           this._state = { status: 'resolved', value: staleValue };
         } else {
           this._state = { status: 'empty' };
         }
+
+        throw err;
       });
 
     if (staleValue !== undefined) {
-      this._state = { status: 'refreshing', value: staleValue, promise: promise as Promise<V> };
+      this._state = { status: 'refreshing', value: staleValue, promise };
     } else {
-      this._state = { status: 'pending', promise: promise as Promise<V> };
+      this._state = { status: 'pending', promise };
     }
+
+    return promise;
   }
 }
 

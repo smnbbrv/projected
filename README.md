@@ -24,7 +24,7 @@ npm i projected
 
 - **Sync returns when cached** - all methods return `T | Promise<T>`, avoiding Promise overhead for cached values
 - **Request deduplication** - multiple consumers share the same in-flight request
-- **Stale-while-revalidate** - `refresh()` returns cached data immediately while fetching fresh data in background
+- **Background refresh** - `refresh()` returns a promise for fresh data (or error), keeps stale value in cache on error
 - **Request batching** - `ProjectedLazyMap` batches individual lookups into single batch requests
 - **Pluggable cache** - use built-in `Map`, LRU cache, or any custom implementation
 - **Deep freeze protection** - optionally freeze returned objects to prevent accidental mutations
@@ -63,7 +63,7 @@ const result2 = await config.get();
 | Method      | Return Type       | Description                                               |
 | ----------- | ----------------- | --------------------------------------------------------- |
 | `get()`     | `T \| Promise<T>` | Returns cached value (sync) or fetches and caches (async) |
-| `refresh()` | `T \| undefined`  | Returns cached value, triggers background refresh         |
+| `refresh()` | `Promise<T>`      | Fetches fresh value, updates cache, rejects on error      |
 | `clear()`   | `void`            | Clears cache, next `get()` will fetch fresh               |
 
 ### Sync vs Async
@@ -126,7 +126,7 @@ await countries.getAllAsMap();
 | `getAll()`              | `T[] \| Promise<T[]>`                | Get all items as array                                  |
 | `getAllAsMap()`         | `Map<K, T> \| Promise<...>`          | Get all items as Map                                    |
 | `get(keyOrKeys)`        | mixed                                | Shorthand for `getByKey` or `getByKeys`                 |
-| `refresh()`             | `Map<K, T> \| undefined`             | Returns cached map, triggers background refresh         |
+| `refresh()`             | `Promise<Map<K, T>>`                 | Fetches fresh map, updates cache, rejects on error      |
 | `clear()`               | `void`                               | Clears cache                                            |
 
 ## ProjectedLazyMap
@@ -200,14 +200,15 @@ const users = new ProjectedLazyMap<string, User>({
 
 ### Methods
 
-| Method                  | Return Type                            | Description                                          |
-| ----------------------- | -------------------------------------- | ---------------------------------------------------- |
-| `getByKey(key)`         | `T \| undefined \| Promise<...>`       | Get single item (sync if cached)                     |
-| `getByKeys(keys)`       | `T[] \| Promise<T[]>`                  | Get multiple items (sync if all cached)              |
-| `getByKeysSparse(keys)` | `(T \| undefined)[] \| Promise<...>`   | Get multiple items preserving order                  |
-| `get(keyOrKeys)`        | mixed                                  | Shorthand for `getByKey` or `getByKeys`              |
-| `refresh(keyOrKeys)`    | `T \| undefined \| (T \| undefined)[]` | Returns cached value(s), triggers background refresh |
-| `clear()`               | `void`                                 | Clears entire cache                                  |
+| Method                  | Return Type                                     | Description                                      |
+| ----------------------- | ----------------------------------------------- | ------------------------------------------------ |
+| `getByKey(key)`         | `T \| undefined \| Promise<...>`                | Get single item (sync if cached)                 |
+| `getByKeys(keys)`       | `T[] \| Promise<T[]>`                           | Get multiple items (sync if all cached)          |
+| `getByKeysSparse(keys)` | `(T \| undefined)[] \| Promise<...>`            | Get multiple items preserving order              |
+| `get(keyOrKeys)`        | mixed                                           | Shorthand for `getByKey` or `getByKeys`          |
+| `refresh(keyOrKeys)`    | `Promise<T \| undefined \| (T \| undefined)[]>` | Fetches fresh value(s), updates cache on success |
+| `delete(keyOrKeys)`     | `void`                                          | Removes item(s) from cache                       |
+| `clear()`               | `void`                                          | Clears entire cache                              |
 
 ## Common Options
 
@@ -232,23 +233,27 @@ const result = await config.get();
 result.setting = 'new'; // throws TypeError in strict mode
 ```
 
-## Stale-While-Revalidate Pattern
+## Refresh Pattern
 
-All classes implement `refresh()` for non-blocking cache updates:
+All classes implement `refresh()` for cache updates with error visibility:
 
 ```ts
-// returns current cached value immediately (sync)
-const stale = users.refresh('user1');
+// triggers fetch and returns promise
+const freshValue = await users.refresh('user1');
 
-// background fetch updates cache
-// next get() returns fresh data
+// or fire-and-forget with error handling
+users.refresh('user1').catch((err) => logger.error('refresh failed', err));
+
+// stale-while-revalidate: get cached value, then refresh in background
+const stale = users.getByKey('user1'); // sync if cached
+users.refresh('user1').catch(handleError); // background refresh
 ```
 
-This is useful for:
+Key behaviors:
 
-- Periodic background refresh
-- Optimistic UI updates
-- Keeping data fresh without blocking renders
+- Returns a Promise that resolves to the **fresh** value
+- On error: rejects the promise, but **keeps stale value in cache**
+- Multiple `refresh()` calls during a fetch share the same promise
 
 ## Guaranteed Sync Access Pattern
 

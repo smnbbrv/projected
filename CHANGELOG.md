@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/smnbbrv/projected/compare/v2.0.0...v2.0.1) (2026-02-05)
+
+
+### Bug Fixes
+
+* refresh return promise and can throw ([51f4005](https://github.com/smnbbrv/projected/commit/51f4005e9b50c8b9e438e266e98420f966dca6da))
+
 # [2.0.0](https://github.com/smnbbrv/projected/compare/v1.4.0...v2.0.0) (2026-02-03)
 
 
